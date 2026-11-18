@@ -1,5 +1,5 @@
 import { isPostUrl } from './lib/resolve.js';
-import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
+import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes, runAction } from './lib/ui.js';
 
 const $ = (id) => document.getElementById(id);
 $('openHistory').innerHTML = ICON.history;
@@ -26,7 +26,7 @@ $('openSettings').onclick = () => chrome.runtime.openOptionsPage();
 // Shows a message, optionally with one button ({ label, run }).
 function say(text, kind = '', action = null) {
   const s = $('status');
-  s.className = 'status ' + kind;
+  s.className = 'status ' + kind;   // also drops "long", which only the batch summary sets
   s.replaceChildren();
   if (!text) return;
   const msg = Object.assign(document.createElement('span'), { className: 'msg', textContent: text });
@@ -52,44 +52,101 @@ chrome.storage.session.get('lastResult').then(({ lastResult }) => {
   chrome.storage.session.remove('lastResult');
 }).catch(() => {});
 
-let pendingConfirm = null;   // { url, host } while asking about a download from another host
-function askConfirm(next) {
-  pendingConfirm = next;
-  $('confirm').hidden = !next;
-  if (next) $('confirmYes').textContent = `Download from ${next.host}`;
-}
-$('confirmNo').onclick = () => { askConfirm(null); say(''); };
-$('confirmYes').onclick = () => { const c = pendingConfirm; if (c) save(c.url, c.host); };
-
-async function save(url, allowHost = '') {
-  askConfirm(null);
-  $('go').disabled = true;
-  say('Finding the video…');
-  let r;
-  try {
-    r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', url, allowHost });
-  } catch {
-    r = { ok: false, error: 'ClipSnatcher didn’t respond. Close this popup and try again.' };
-  } finally {
-    $('go').disabled = false;
+// A question with buttons under the status line (for "download from another host?" and
+// "already saved"). `choices` is a list of { label, run }; null clears it.
+function ask(choices) {
+  const row = $('confirm');
+  row.replaceChildren();
+  row.hidden = !choices;
+  for (const c of choices || []) {
+    const b = Object.assign(document.createElement('button'), { className: 'btn small', type: 'button', textContent: c.label });
+    b.onclick = () => { ask(null); c.run(); };
+    row.append(b);
   }
+  row.querySelector('button')?.focus();
+}
+
+async function send(url, extra = {}) {
+  try {
+    return await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', url, ...extra });
+  } catch {
+    return { ok: false, error: 'ClipSnatcher didn’t respond. Close this popup and try again.' };
+  }
+}
+
+// Shows what happened with one saved link and offers the follow-up choices.
+function report(url, r, extra) {
   if (r?.ok) {
     const what = r.count > 1 ? `${r.count} videos from: ${r.title}` : r.title;
-    say(`Download started: ${what}${r.warning ? `. ${r.warning}` : ''}`, r.warning ? '' : 'ok');
+    say(`Download started: ${what}${r.detail ? ` (${r.detail})` : ''}${r.warning ? `. ${r.warning}` : ''}`, r.warning ? '' : 'ok');
     $('url').value = '';
   } else if (r?.needsConfirm) {
     say(r.error);
-    askConfirm({ url, host: r.host });
+    ask([{ label: `Download from ${r.host}`, run: () => save(url, { ...extra, allowHost: r.host }) }, { label: 'Cancel', run: () => say('') }]);
+  } else if (r?.duplicate) {
+    say(r.error);
+    const choices = [];
+    if (r.entryId) choices.push({ label: 'Show in folder', run: () => showEntry(r.entryId) });
+    choices.push({ label: r.busy ? 'Save another copy' : 'Save again', run: () => save(url, { ...extra, force: true }) });
+    choices.push({ label: 'Cancel', run: () => say('') });
+    ask(choices);
   } else {
     say(r?.error || 'Something went wrong.', 'err');
   }
 }
 
+async function showEntry(id) {
+  const entry = (await getHistory()).find((e) => e.id === id);
+  if (!entry) return say('That entry is no longer in history.', 'err');
+  const [state] = [await liveState([entry])];
+  runAction('show', entry, say, state.get(entry.id));
+}
+
+async function save(url, extra = {}) {
+  ask(null);
+  $('go').disabled = true;
+  say('Finding the video…');
+  const r = await send(url, extra);
+  $('go').disabled = false;
+  report(url, r, extra);
+}
+
+// Several links pasted at once are saved one after another. Questions (another host,
+// already saved) are not asked in a batch: those links are listed so they can be pasted alone.
+const MAX_BATCH = 20;
+async function saveMany(urls) {
+  ask(null);
+  $('go').disabled = true;
+  const started = [], skipped = [], failed = [];
+  for (const [i, url] of urls.entries()) {
+    say(`Saving ${i + 1} of ${urls.length}… Keep this window open until it finishes.`);
+    const r = await send(url);
+    if (r?.ok) started.push(url);
+    else if (r?.duplicate) skipped.push('already saved');
+    else if (r?.needsConfirm) failed.push(`${shortLink(url)}: hosted on ${r.host}; paste it on its own to confirm`);
+    else failed.push(`${shortLink(url)}: ${r?.error || 'failed'}`);
+  }
+  $('go').disabled = false;
+  const parts = [`Started ${started.length} of ${urls.length}.`];
+  if (skipped.length) parts.push(`${skipped.length} already saved.`);
+  if (failed.length) parts.push(`Not saved: ${failed.join(' • ')}`);
+  say(parts.join(' '), failed.length ? 'err' : 'ok');
+  $('status').classList.add('long');      // show every line of the summary
+  if (!failed.length) $('url').value = '';
+}
+const shortLink = (u) => u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40) + (u.length > 48 ? '…' : '');
+
 $('form').addEventListener('submit', (e) => {
   e.preventDefault();
-  const url = $('url').value.trim();
-  if (!url) return say('Paste a link first.', 'err');
-  save(url);
+  const text = $('url').value.trim();
+  if (!text) return say('Paste a link first.', 'err');
+  // A one-line box drops line breaks from pasted text, so links pasted one per line arrive
+  // glued together ("https://a.com/1https://b.com/2"): each "http" starts a new link.
+  // An address inside a link's query ("?u=https://…") is part of that link, not a new one.
+  const links = [...new Set((text.match(/https?:\/\/.+?(?=(?<![=&?%:])https?:\/\/|[\s<>"']|$)/gi) || []).map((u) => u.replace(/[)\].,;!?'"]+$/, '')))];
+  if (links.length > MAX_BATCH) return say(`That's ${links.length} links. Paste up to ${MAX_BATCH} at a time.`, 'err');
+  if (links.length > 1) return saveMany(links);
+  save(text);
 });
 
 const EMPTY = '<div class="empty">Nothing saved yet. Point at a video on X, Reddit or Facebook and press <b>Save</b>, or paste a post link above.</div>';
@@ -124,4 +181,5 @@ chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && (c.h
 chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.filename) render(); });
 chrome.downloads.onErased.addListener(() => render());
 
+$('recent').addEventListener('clipsnatcher:rerender', () => { if ($('recent').dataset.stale) { delete $('recent').dataset.stale; render(); } });
 wireList($('recent'), (id) => { const entry = entries.find((x) => x.id === id); return { entry, live: entry && live.get(entry.id) }; }, say);

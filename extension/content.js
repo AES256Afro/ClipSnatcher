@@ -69,7 +69,7 @@
           transition: background .12s; }
         button:hover { background: rgba(17,17,20,.95); }
         button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-        button.ok { background: #1a7f37; } button.err { background: #cf222e; }
+        button.ok { background: #1a7f37; } button.err { background: #cf222e; } button.dup { background: #5b4bf5; }
         svg { width: 15px; height: 15px; flex: none; }
         .spin { animation: s 0.8s linear infinite; } @keyframes s { to { transform: rotate(360deg); } }
         @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
@@ -95,7 +95,8 @@
     ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>',
     err: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4v5M8 12h0"/></svg>',
   };
-  const LABELS = { idle: 'Save', busy: 'Finding…', ok: 'Downloading', err: 'Failed' };
+  ICONS.dup = ICONS.ok;
+  const LABELS = { idle: 'Save', busy: 'Finding…', ok: 'Downloading', err: 'Failed', dup: 'Saved before' };
 
   let drawn = '';
   function draw(state, text) {
@@ -104,7 +105,7 @@
     const key = state + '|' + (text || '');
     if (key === drawn) return;
     drawn = key;
-    btn.className = state === 'ok' || state === 'err' ? state : '';
+    btn.className = state === 'ok' || state === 'err' || state === 'dup' ? state : '';
     btn.innerHTML = ICONS[state];
     const span = document.createElement('span');
     span.textContent = LABELS[state];
@@ -244,10 +245,11 @@
     const video = current;
     const job = jobOf(video);
     if (!video || job?.state === 'busy' || job?.state === 'ok') return;
+    const force = job?.state === 'dup';     // told it was saved before, and clicked again
     const clip = clipOf(video);
     jobs.set(video, { state: 'busy', clip });
     paint();
-    const hint = gather(video);
+    const hint = { ...gather(video), force };
     let res;
     try {
       res = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint });
@@ -255,7 +257,16 @@
       res = { ok: false, error: 'ClipSnatcher was updated or reloaded. Refresh this page and try again.' };
     }
     const ok = !!res?.ok;
-    const text = ok ? `Download started: ${res.title || 'video'}${res.warning ? `. ${res.warning}` : ''}` : (res?.error || 'Something went wrong.');
+    if (res?.duplicate) {
+      // Being saved right now: nothing to offer. Saved earlier: a second click saves another copy.
+      const job = res.busy
+        ? { state: 'err', text: 'This video is already being saved.', clip, until: Date.now() + RESULT_ERR_MS }
+        : { state: 'dup', text: 'Saved before. Click again to save another copy.', clip, until: Date.now() + RESULT_ERR_MS };
+      jobs.set(video, job);
+      if (current === video && hostEl.style.display !== 'none') { clearTimeout(hideTimer); paint(); } else toast(res.error, 'info');
+      return;
+    }
+    const text = ok ? `Download started: ${res.title || 'video'}${res.detail ? ` (${res.detail})` : ''}${res.warning ? `. ${res.warning}` : ''}` : (res?.error || 'Something went wrong.');
     jobs.set(video, { state: ok ? 'ok' : 'err', text, clip, until: Date.now() + (ok ? RESULT_OK_MS : RESULT_ERR_MS) });
     // If the pointer has moved on (or the video scrolled away), say it in a notice instead.
     if (current === video && hostEl.style.display !== 'none') { clearTimeout(hideTimer); paint(); } else toast(text, ok ? 'ok' : 'err');
@@ -281,7 +292,7 @@
       pendingNotice?.remove();
       pendingNotice = null;
       if (r?.pending) { pendingNotice = toast('Finding the video\u2026', 'info'); return; }
-      toast(r?.ok ? `Download started: ${r.title || 'video'}${r.warning ? `. ${r.warning}` : ''}` : (r?.error || 'Download failed.'), r?.ok ? 'ok' : 'err');
+      toast(r?.message || (r?.ok ? `Download started: ${r.title || 'video'}${r.detail ? ` (${r.detail})` : ''}${r.warning ? `. ${r.warning}` : ''}` : (r?.error || 'Download failed.')), r?.ok ? 'ok' : 'err');
     }
   });
 

@@ -40,7 +40,7 @@
     </div>
   </header>
   <div class="tools">
-    <input type="search" id="q" aria-label="Search saved videos" placeholder="Search by title, author, site or link" autofocus>
+    <input type="search" id="q" aria-label="Search saved videos" placeholder="Search by title, author, site, link or note  ( / )" autofocus>
     <div class="chips" id="chips" role="group" aria-label="Filter by site">
       <button class="chip" data-site="" aria-pressed="true">All</button>
       <button class="chip" data-site="x" aria-pressed="false">X</button>
@@ -48,6 +48,7 @@
       <button class="chip" data-site="facebook" aria-pressed="false">Facebook</button>
       <button class="chip" data-site="web" aria-pressed="false">Other</button>
     </div>
+    <button class="chip" id="favs" type="button" aria-pressed="false" title="Show only favourites">&#9733; Favourites</button>
   </div>
   <div class="count"><span id="count"></span><button class="btn small" id="clearFilters" type="button" hidden>Clear search and filter</button></div>
   <div id="list" role="list" aria-label="Saved videos"></div>

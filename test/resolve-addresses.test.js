@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve, ResolveError, canonicalUrl, extractUrl, detectSite, findFbVideoUrl, packagedForPost } from '../extension/lib/resolve.js';
 // Each check is its own test, so a failure names exactly what broke.
 const eq = (name, got, want) => test(name, () => assert.deepEqual(got, want));
+const pickFb = (...a) => { const r = findFbVideoUrl(...a); return r && (r.ambiguous ? { ambiguous: true } : { url: r.url }); };
 let calls = [];
 globalThis.fetch = async (url) => { calls.push(url); return { ok: false, status: 404, url, text: async () => '', json: async () => ({}) }; };
 const run = async (u, h = {}, o = {}) => { calls = []; try { const r = await resolve(u, h, o); return { site: r.site, items: r.items.map((i) => i.url) }; } catch (e) { return { err: e.message, typed: e instanceof ResolveError }; } };
@@ -39,13 +40,13 @@ eq('hostile Facebook page handled fast (' + ms + ' ms)', ms < 3000, true);
 // --- facebook picker
 const j = (id, kind, file, key = 'id') => `{"${key}":"${id}","${kind}":"https:\\/\\/v.fbcdn.net\\/${file}"}`;
 const pad = (n) => 'x'.repeat(n);
-eq('several videos, only one has HD, no ID -> refuse', findFbVideoUrl(`{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/A-hd.mp4","browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/A-sd.mp4"}` + pad(9000) + `{"browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/B-sd.mp4"}`, null), { ambiguous: true });
-eq('same video listed twice counts once', findFbVideoUrl(`{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/A-hd.mp4","browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/A-sd.mp4"}` + pad(9000) + `{"browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/A-sd.mp4"}`, null), { url: 'https://v.fbcdn.net/A-hd.mp4' });
-eq('two videos side by side, no ID -> refuse', findFbVideoUrl(j('1', 'browser_native_hd_url', 'a.mp4') + j('2', 'browser_native_hd_url', 'b.mp4'), null), { ambiguous: true });
-eq('ID in a caption does not steer the pick', findFbVideoUrl(j('1234567890', 'browser_native_hd_url', 'mine.mp4') + pad(9000) + `{"caption":"watch 1234567890 now","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
-eq('video_id field counts as the ID', findFbVideoUrl(j('999', 'browser_native_hd_url', 'other.mp4') + pad(9000) + j('1234567890', 'browser_native_sd_url', 'mine.mp4', 'video_id'), '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
-eq('ID field present but the video is far away -> nothing', findFbVideoUrl(`{"video_id":"1234567890"}${pad(30000)}{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}`, '1234567890'), null);
-eq('non-web address in a field is ignored', findFbVideoUrl(`{"browser_native_hd_url":"javascript:alert(1)"}`, null), null);
+eq('several videos, only one has HD, no ID -> refuse', pickFb(`{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/A-hd.mp4","browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/A-sd.mp4"}` + pad(9000) + `{"browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/B-sd.mp4"}`, null), { ambiguous: true });
+eq('same video listed twice counts once', pickFb(`{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/A-hd.mp4","browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/A-sd.mp4"}` + pad(9000) + `{"browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/A-sd.mp4"}`, null), { url: 'https://v.fbcdn.net/A-hd.mp4' });
+eq('two videos side by side, no ID -> refuse', pickFb(j('1', 'browser_native_hd_url', 'a.mp4') + j('2', 'browser_native_hd_url', 'b.mp4'), null), { ambiguous: true });
+eq('ID in a caption does not steer the pick', pickFb(j('1234567890', 'browser_native_hd_url', 'mine.mp4') + pad(9000) + `{"caption":"watch 1234567890 now","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
+eq('video_id field counts as the ID', pickFb(j('999', 'browser_native_hd_url', 'other.mp4') + pad(9000) + j('1234567890', 'browser_native_sd_url', 'mine.mp4', 'video_id'), '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
+eq('ID field present but the video is far away -> nothing', pickFb(`{"video_id":"1234567890"}${pad(30000)}{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}`, '1234567890'), null);
+eq('non-web address in a field is ignored', pickFb(`{"browser_native_hd_url":"javascript:alert(1)"}`, null), null);
 
 // --- reddit packaged: only the post's own element, matched on its real id attribute
 const pk = (u) => JSON.stringify({ playbackMp4s: { permutations: [{ source: { url: u, dimensions: { height: 720 } } }] } }).replace(/"/g, '&quot;');

@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 $('settings').innerHTML = ICON.gear + 'Settings';
 
 const PAGE = 60;
+let favsOnly = false;
 let all = [], shown = [], live = new Map(), limit = PAGE, site = '', renderNo = 0, progressTimer = 0;
 
 // Shows a notice at the bottom, optionally with one button ({ label, run }).
@@ -37,9 +38,10 @@ const SITE_WORDS = { x: 'x twitter', reddit: 'reddit', facebook: 'facebook fb', 
 const searchText = new WeakMap();   // entry -> lower-case text to search, built once per entry
 function matches(e, terms) {
   if (site && e.site !== site) return false;
+  if (favsOnly && !e.fav) return false;
   if (!terms.length) return true;
   let hay = searchText.get(e);
-  if (hay === undefined) searchText.set(e, hay = `${e.title} ${e.author} ${e.sourceUrl} ${e.path || ''} ${SITE_WORDS[e.site] || ''}`.toLowerCase());
+  if (hay === undefined) searchText.set(e, hay = `${e.title} ${e.author} ${e.sourceUrl} ${e.path || ''} ${SITE_WORDS[e.site] || ''} ${e.note || ''}`.toLowerCase());
   return terms.every((t) => hay.includes(t));
 }
 
@@ -60,7 +62,7 @@ async function render() {
   shown = rows; live = state;
   announceMergeOutcomes(seenStates, shown, live, say);
   $('count').textContent = all.length ? `${filtered.length} of ${all.length} video${all.length === 1 ? '' : 's'}` : '';
-  $('clearFilters').hidden = !(all.length && (terms.length || site));
+  $('clearFilters').hidden = !(all.length && (terms.length || site || favsOnly));
   renderList($('list'), shown, live, { progress, thumbs, emptyHTML: all.length ? EMPTY_FILTERED : EMPTY_ALL });
   $('more').hidden = filtered.length <= limit;
   $('cleanup').hidden = all.length === 0;
@@ -91,7 +93,10 @@ $('chips').addEventListener('click', (e) => {
   pickSite(c.dataset.site);
   render();
 });
-$('clearFilters').onclick = () => { $('q').value = ''; pickSite(''); render(); $('q').focus(); };
+$('clearFilters').onclick = () => { $('q').value = ''; pickSite(''); setFavsOnly(false); render(); $('q').focus(); };
+function setFavsOnly(on) { favsOnly = on; $('favs').setAttribute('aria-pressed', String(on)); }
+$('favs').onclick = () => { setFavsOnly(!favsOnly); limit = PAGE; render(); };
+$('list').addEventListener('clipsnatcher:rerender', () => { if ($('list').dataset.stale) { delete $('list').dataset.stale; render(); } });
 $('more').onclick = () => { limit += PAGE; render(); };
 
 // Finds entries whose file is gone and offers to remove them (with Undo).
@@ -132,4 +137,14 @@ chrome.storage.onChanged.addListener((c, area) => {
 let dlTimer;
 chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.filename) { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); } });
 chrome.downloads.onErased.addListener(() => { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); });   // Chrome's download list was cleared
+// "/" jumps to the search box; Escape in it clears the search.
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') && !document.activeElement?.isContentEditable) {
+    e.preventDefault();
+    $('q').focus();
+    $('q').select();
+  }
+});
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('q').value) { e.preventDefault(); $('q').value = ''; limit = PAGE; render(); } });
+
 load();

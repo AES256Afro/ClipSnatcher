@@ -15,6 +15,9 @@ export const ICON = {
   trash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 8.6a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9l.7-8.6"/></svg>',
   remove: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M3 8h6M3 11h4M11 9.5l3 3M14 9.5l-3 3"/></svg>',
   path: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6z"/><path d="M9 2.5V6h3.5M6 9h4M6 11h2.5"/></svg>',
+  star: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>',
+  starOn: '<svg viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>',
+  note: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3-7.5 7.5H3v-3z"/></svg>',
   more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></svg>',
   film: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.5 6v4l3.5-2z" fill="currentColor"/></svg>',
   down: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>',
@@ -147,6 +150,7 @@ function menuActions(state, e) {
   const items = [];
   if (/^https?:\/\//i.test(e.sourceUrl || '')) items.push(['source', 'open', 'Open original post'], ['copylink', 'link', 'Copy post link']);
   if (state === 'ready' || state === 'unlisted') items.push(['copypath', 'path', 'Copy file path'], ['redo', 'redo', 'Download again']);
+  items.push(['note', 'note', e.note ? 'Edit note\u2026' : 'Add note\u2026']);
   items.push(['remove', 'remove', 'Remove from history']);
   if (state === 'ready') items.push(['deletefile', 'trash', 'Delete file…', true]);
   return items;
@@ -165,13 +169,15 @@ export function rowHTML(e, live, { compact = false, progress = {}, thumbs = new 
   const main = mainActions(state).filter(([act]) => !(compact && act === 'play'))   // in the popup the thumbnail is enough
     .map(([act, icon, label]) => `<button class="btn ghost${compact ? ' icon' : ''}" data-act="${act}" data-id="${id}" title="${label}" aria-label="${label}: ${title}">${ICON[icon]}${compact ? '' : `<span>${label}</span>`}</button>`).join('');
   const more = `<button class="btn ghost icon" data-act="more" data-id="${id}" title="More" aria-label="More actions: ${title}" aria-haspopup="menu" aria-expanded="false">${ICON.more}</button>`;
+  const star = `<button class="btn ghost icon star${e.fav ? ' on' : ''}" data-act="fav" data-id="${id}" aria-pressed="${e.fav ? 'true' : 'false'}" title="${e.fav ? 'Remove from favourites' : 'Add to favourites'}" aria-label="Favourite: ${title}">${e.fav ? ICON.starOn : ICON.star}</button>`;
+  const note = e.note ? `<div class="note-line" title="${esc(e.note)}">${esc(e.note)}</div>` : '';
   return `<div class="row" role="listitem" data-id="${id}" data-state="${state}">
     ${thumb}
     <div class="meta">
-      <div class="title" title="${title}">${title}</div>
+      <div class="title" title="${title}">${title}</div>${note}
       <div class="sub"><span class="badge ${esc(e.site)}">${SITE_LABEL[e.site] || 'Web'}</span>${e.author && !(compact && state !== 'ready') ? `<span class="author">${esc(e.author)}</span>` : ''}<span>${timeAgo(e.createdAt)}</span>${statusHTML(e, it, state, progress, compact)}</div>
     </div>
-    <div class="actions" role="group" aria-label="Actions for ${title}">${main}${more}</div>
+    <div class="actions" role="group" aria-label="Actions for ${title}">${main}${compact ? '' : star}${more}</div>
   </div>`;
 }
 
@@ -180,6 +186,8 @@ export function rowHTML(e, live, { compact = false, progress = {}, thumbs = new 
 // if they are the inline JPEGs this extension makes. An open More menu is closed,
 // because the row it belongs to is being replaced.
 export function renderList(container, entries, live, opts = {}) {
+  // Don't throw away a note someone is typing; the page re-renders when they finish.
+  if (container.querySelector('.note-edit')) { container.dataset.stale = '1'; return; }
   closeMenu();
   const active = container.contains(document.activeElement) ? document.activeElement : null;
   const keep = active?.dataset?.id ? { id: active.dataset.id, act: active.dataset.act, slot: active.dataset.slot || '' } : null;
@@ -343,6 +351,12 @@ export async function handleAction(act, entry, say, cached) {
       }
       return say(r?.ok ? `Download started${r.warning ? `. ${r.warning}` : '.'}` : (r?.error || 'Couldn’t download again.'), r?.ok ? 'ok' : 'err');
     }
+    case 'fav': {
+      const r = await send({ type: 'clipsnatcher:setFav', id: entry.id, fav: !entry.fav });
+      return r?.ok ? undefined : say('Couldn\u2019t change the favourite.', 'err');
+    }
+    case 'note':
+      return editNote(entry, say);
     case 'remove':
       await send({ type: 'clipsnatcher:remove', ids: [entry.id] });
       return say(state === 'merging' ? 'Removed from history. The merge was stopped, so nothing is saved.' : 'Removed from history. The file itself is untouched.', 'ok', {
@@ -372,6 +386,40 @@ export function announceMergeOutcomes(seen, entries, live, say) {
     if (state === 'failed') say(`Couldn't save "${e.title}": ${failureReason(e.error) || 'the download failed'}.`, 'err');
     else if (e.noAudio) say(`"${e.title}" is being saved without sound: Reddit's audio couldn't be merged in.`);
   }
+}
+
+// Opens a small box under the row's title to write or change its note.
+// Enter saves, Escape cancels; leaving the box also saves.
+function editNote(entry, say) {
+  const row = [...document.querySelectorAll('.row')].find((r) => r.dataset.id === entry.id);
+  const meta = row?.querySelector('.meta');
+  if (!meta || meta.querySelector('.note-edit')) return;
+  const list = row.parentElement;
+  const input = Object.assign(document.createElement('input'), { type: 'text', className: 'note-edit', value: entry.note || '', maxLength: 500, placeholder: 'Note (searchable). Enter to save, Esc to cancel' });
+  input.setAttribute('aria-label', `Note for ${entry.title}`);
+  meta.querySelector('.note-line')?.remove();
+  meta.querySelector('.title').after(input);
+  input.focus();
+  let done = false;
+  const finish = async (save, byKeyboard = false) => {
+    if (done) return;
+    done = true;
+    const text = input.value.trim();
+    // Keep keyboard focus on this row (its More button) once the box closes.
+    if (byKeyboard) row.querySelector('[data-act="more"]')?.focus({ preventScroll: true });
+    input.remove();
+    if (list) list.dataset.stale = '1';     // redraw the row, which also puts the note line back
+    if (save && text !== (entry.note || '')) {
+      const r = await send({ type: 'clipsnatcher:setNote', id: entry.id, note: text });
+      say(r?.ok ? (text ? 'Note saved.' : 'Note removed.') : 'Couldn\u2019t save the note.', r?.ok ? 'ok' : 'err');
+    }
+    list?.dispatchEvent(new Event('clipsnatcher:rerender'));   // catch up on anything that changed meanwhile
+  };
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); finish(true, true); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false, true); }
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 // Run a row action and make sure a failure is shown instead of vanishing.

@@ -26,9 +26,15 @@ ClipSnatcher makes network requests only when you ask it to save a video. They g
 
 For Reddit and Facebook, these requests are made by your browser in the same way as when you visit the site, which means they include your existing login for that site if you have one. This is what allows the extension to see posts that you can see. The download itself is an ordinary Chrome download, so Chrome sends the video host whatever cookies it already holds for that host, as it would for any download. ClipSnatcher does not read, store or transmit your passwords or login cookies.
 
-Thumbnails are fetched only from the same site's own media host.
+Thumbnails are fetched only from the same site's own media host. When the quality setting asks for a size limit, ClipSnatcher also asks that same media host how large each version of the video is (a request for the size only, not the video) before choosing one.
+
+For Reddit, the post's page is requested at the same time as the post's data, to save time; the page request is cancelled as soon as it turns out not to be needed.
 
 No request is ever made to a server belonging to this project, because there isn't one.
+
+## Backups
+
+**Back up history** writes a file to your Downloads folder with your history, notes, favourites and thumbnails. It stays wherever you put it; ClipSnatcher never sends it anywhere. Restoring reads a file you choose and adds its entries to history.
 
 ## Permissions
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve, ResolveError, extractUrl, decodeEntities, bestPackaged, packagedForPost, findFbVideoUrl, fbIsSinglePost, fbVideoId, detectSite, isSiteMediaUrl, parseDash } from '../extension/lib/resolve.js';
 // Each check is its own test, so a failure names exactly what broke.
 const eq = (name, got, want) => test(name, () => assert.deepEqual(got, want));
+const pickFb = (...a) => { const r = findFbVideoUrl(...a); return r && (r.ambiguous ? { ambiguous: true } : { url: r.url }); };
 const routes = []; let calls = [];
 globalThis.fetch = async (url, opts = {}) => {
   calls.push(url);
@@ -39,14 +40,14 @@ eq('fbVideoId ignores v= on other paths', fbVideoId('https://www.facebook.com/l.
 // --- facebook: which video
 const j = (id, kind, file) => `{"id":"${id}","${kind}":"https:\\/\\/v.fbcdn.net\\/${file}"}`;
 const pad = (n) => 'x'.repeat(n);
-eq('fb picks the video next to its ID', findFbVideoUrl(j('999', 'browser_native_hd_url', 'other.mp4') + pad(30000) + j('1234567890', 'browser_native_hd_url', 'mine.mp4'), '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
-eq('fb: own SD beats a neighbour\'s HD', findFbVideoUrl(j('1234567890', 'browser_native_sd_url', 'mine-sd.mp4') + pad(15000) + j('999', 'browser_native_hd_url', 'other-hd.mp4'), '1234567890'), { url: 'https://v.fbcdn.net/mine-sd.mp4' });
-eq('fb: own HD preferred over own SD', findFbVideoUrl(`{"id":"1234567890","browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/sd.mp4","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/hd.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/hd.mp4' });
-eq('fb: ID inside a longer number does not count', findFbVideoUrl(j('91234567890', 'browser_native_hd_url', 'other.mp4') + pad(100) + j('555', 'browser_native_hd_url', 'second.mp4'), '1234567890'), { ambiguous: true });
-eq('fb: a bare number in page text is not an ID; one video on the page is used', findFbVideoUrl(`"1234567890"${pad(30000)}{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/other.mp4' });
-eq('fb: no ID, one video', findFbVideoUrl(`{"browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/sd.mp4","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/only.mp4"}` + `{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/only.mp4"}`, null), { url: 'https://v.fbcdn.net/only.mp4' });
-eq('fb: no ID, two videos -> refuse', findFbVideoUrl(j('1', 'browser_native_hd_url', 'a.mp4') + j('2', 'browser_native_hd_url', 'b.mp4'), null), { ambiguous: true });
-eq('fb: plain text imitation ignored', findFbVideoUrl('<title>hd_src:"https://attacker.example/x.mp4"</title>', null), null);
+eq('fb picks the video next to its ID', pickFb(j('999', 'browser_native_hd_url', 'other.mp4') + pad(30000) + j('1234567890', 'browser_native_hd_url', 'mine.mp4'), '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
+eq('fb: own SD beats a neighbour\'s HD', pickFb(j('1234567890', 'browser_native_sd_url', 'mine-sd.mp4') + pad(15000) + j('999', 'browser_native_hd_url', 'other-hd.mp4'), '1234567890'), { url: 'https://v.fbcdn.net/mine-sd.mp4' });
+eq('fb: own HD preferred over own SD', pickFb(`{"id":"1234567890","browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/sd.mp4","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/hd.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/hd.mp4' });
+eq('fb: ID inside a longer number does not count', pickFb(j('91234567890', 'browser_native_hd_url', 'other.mp4') + pad(100) + j('555', 'browser_native_hd_url', 'second.mp4'), '1234567890'), { ambiguous: true });
+eq('fb: a bare number in page text is not an ID; one video on the page is used', pickFb(`"1234567890"${pad(30000)}{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/other.mp4' });
+eq('fb: no ID, one video', pickFb(`{"browser_native_sd_url":"https:\\/\\/v.fbcdn.net\\/sd.mp4","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/only.mp4"}` + `{"browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/only.mp4"}`, null), { url: 'https://v.fbcdn.net/only.mp4' });
+eq('fb: no ID, two videos -> refuse', pickFb(j('1', 'browser_native_hd_url', 'a.mp4') + j('2', 'browser_native_hd_url', 'b.mp4'), null), { ambiguous: true });
+eq('fb: plain text imitation ignored', pickFb('<title>hd_src:"https://attacker.example/x.mp4"</title>', null), null);
 eq('dash ignores foreign BaseURL', parseDash('<AdaptationSet contentType="video"><Representation bandwidth="1" height="2160"><BaseURL>https://attacker.example/v.mp4</BaseURL></Representation><Representation bandwidth="1" height="720"><BaseURL>CMAF_720.mp4</BaseURL></Representation></AdaptationSet>', 'vid9').video, 'https://v.redd.it/vid9/CMAF_720.mp4');
 
 // --- never guess

@@ -156,3 +156,58 @@ test('clearing history also deletes the thumbnails', async () => {
   await store.clearHistory();
   assert.deepEqual(Object.keys(data).filter((k) => k.startsWith('thumb:')), []);
 });
+
+test('entries from a backup file are cleaned before they are trusted', () => {
+  const clean = store.cleanImportedEntry({
+    id: 'abc-1', title: 'Clip\u0000', author: 'r/aww', site: 'reddit', sourceUrl: 'https://www.reddit.com/r/aww/comments/a/', postId: 'a',
+    mediaUrl: 'https://evil.example/x.mp4', mediaHost: 'evil.example', downloadId: 42, dlStart: 'x', index: 2,
+    state: 'complete', path: '/Users/someone/Downloads/clip.mp4', bytes: 10, createdAt: 1700000000000, fav: true, note: '  hi  ', thumb: 'data:x',
+  });
+  assert.equal(clean.mediaHost, '', 'no host is pre-approved');
+  assert.equal(clean.downloadId, null, 'not tied to a download on this computer');
+  assert.equal(clean.title, 'Clip ');
+  assert.equal(clean.note, 'hi');
+  assert.equal(clean.index, 2);
+  assert.equal(clean.imported, true);
+  assert.equal('thumb' in clean, false);
+});
+
+test('backup entries with bad ids, addresses or states are refused or neutralised', () => {
+  assert.equal(store.cleanImportedEntry({ id: '../x', title: 't' }), null);
+  assert.equal(store.cleanImportedEntry({ id: 'ok', title: 5 }), null);
+  assert.equal(store.cleanImportedEntry(null), null);
+  const e = store.cleanImportedEntry({ id: 'w1', title: 't', site: 'web', mediaUrl: 'https://anywhere.example/v.mp4', sourceUrl: 'javascript:alert(1)', state: 'merging', path: 'relative/path.mp4', createdAt: -5 });
+  assert.equal(e.mediaUrl, '', 'files from other websites keep no address');
+  assert.equal(e.sourceUrl, '');
+  assert.equal(e.state, 'interrupted');
+  assert.equal(e.path, null);
+  assert.ok(e.createdAt > 0);
+  assert.equal(store.cleanImportedEntry({ id: 's', title: 't', site: 'evil' }).site, 'web');
+  assert.equal(store.cleanImportedEntry({ id: 'u', title: 't', sourceUrl: 'https://a:b@x.com/' }).sourceUrl, '');
+});
+
+test('only small JPEG data addresses are accepted as thumbnails', () => {
+  assert.equal(store.validThumb('data:image/jpeg;base64,AAAA'), true);
+  assert.equal(store.validThumb('data:image/svg+xml;base64,AAAA'), false);
+  assert.equal(store.validThumb("data:image/jpeg;base64,AA')"), false);
+  assert.equal(store.validThumb('data:image/jpeg;base64,' + 'A'.repeat(400000)), false);
+});
+
+test('restoring a backup never pushes existing entries out of a full history', async () => {
+  await store.restoreEntries(Array.from({ length: store.MAX_HISTORY - 2 }, (_, i) => entry('h' + i)));
+  const r = await store.restoreEntries([entry('new1', { createdAt: 10 ** 12 }), entry('new2', { createdAt: 10 ** 12 }), entry('new3', { createdAt: 10 ** 12 }), entry('h0')], new Set(), { keepExisting: true });
+  assert.equal(r.length, 2, 'only as many as there is room for');
+  assert.equal(r.existing, 1);
+  assert.equal(r.full, 1);
+  const list = await store.getHistory();
+  assert.equal(list.length, store.MAX_HISTORY);
+  assert.ok(list.some((e) => e.id === 'h0') && list.some((e) => e.id === 'h1'), 'no existing entry was dropped');
+});
+
+test('a backup entry keeps a file address only on its site\'s own media host, and no future date', () => {
+  const evil = store.cleanImportedEntry({ id: 'e1', title: 't', site: 'reddit', mediaUrl: 'https://evil.example/v.mp4', createdAt: Date.now() + 10 ** 10 });
+  assert.equal(evil.mediaUrl, '');
+  assert.ok(evil.createdAt <= Date.now());
+  const ok = store.cleanImportedEntry({ id: 'e2', title: 't', site: 'x', mediaUrl: 'https://video.twimg.com/a.mp4' });
+  assert.equal(ok.mediaUrl, 'https://video.twimg.com/a.mp4');
+});

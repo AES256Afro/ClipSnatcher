@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve, ResolveError, findFbVideoUrl, packagedForPost, fbVideoId, fbIsSinglePost } from '../extension/lib/resolve.js';
 // Each check is its own test, so a failure names exactly what broke.
 const eq = (name, got, want) => test(name, () => assert.deepEqual(got, want));
+const pickFb = (...a) => { const r = findFbVideoUrl(...a); return r && (r.ambiguous ? { ambiguous: true } : { url: r.url }); };
 let page = '';
 globalThis.fetch = async (url) => ({ ok: true, status: 200, url, text: async () => page, json: async () => ({}) });
 const run = async (u, h = {}, o = {}) => { try { const r = await resolve(u, h, o); return { site: r.site, title: r.title, items: r.items.map((i) => i.url), thumb: r.thumb, src: r.sourceUrl }; } catch (e) { return { err: e.message }; } };
@@ -23,8 +24,8 @@ page = `<link rel="canonical"><meta property="og:url" content="https://www.reddi
 r = await run('https://www.reddit.com/r/a/s/AbCdEf');
 eq('canonical link with no address falls back to og:url (post found, then lookup continues)', /Couldn.t find the Reddit post/.test(r.err || ''), false);
 eq('live replay address counts as one video', [fbVideoId('https://www.facebook.com/watch/live/?v=1234567890'), fbIsSinglePost('https://www.facebook.com/watch/live/?v=1234567890')], ['1234567890', true]);
-eq('"paid" field is not taken for an ID', findFbVideoUrl(`{"paid":"1234567890","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}` + 'x'.repeat(9000) + `{"video_id":"1234567890","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/mine.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
-eq('videoId (camel case) counts', findFbVideoUrl(`{"videoId":"1234567890","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/mine.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
+eq('"paid" field is not taken for an ID', pickFb(`{"paid":"1234567890","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/other.mp4"}` + 'x'.repeat(9000) + `{"video_id":"1234567890","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/mine.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
+eq('videoId (camel case) counts', pickFb(`{"videoId":"1234567890","browser_native_hd_url":"https:\\/\\/v.fbcdn.net\\/mine.mp4"}`, '1234567890'), { url: 'https://v.fbcdn.net/mine.mp4' });
 // hostile: thousands of opening tags and no ">" anywhere, on a large page
 page = '<shreddit-post '.repeat(5000) + 'a'.repeat(16 * 1024 * 1024);
 let ms = Date.now(); packagedForPost(page, 'abc123'); ms = Date.now() - ms;

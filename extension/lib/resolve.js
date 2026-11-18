@@ -3,8 +3,12 @@
 //
 // Result shape:
 // { site, id, title, author, sourceUrl, thumb,
-//   items: [ {kind:'direct', url, index, noAudio?} | {kind:'mux', video, audio, index} ] }
+//   items: [ {kind:'direct', url, index, noAudio?, variants?} | {kind:'mux', video, audio, index, variants?} ] }
 // `index` is the video's 1-based position in the post (used by "Download again").
+// `variants`, when present, lists every quality on offer, best first, each shaped like
+// an item (without index) plus what is known about it: height, bitrate (bits/second),
+// estBytes. The item itself is always the first variant. The background picks one
+// according to the quality setting.
 //
 // Rule of thumb for this file: never guess. If a link doesn't identify one post, or a
 // page doesn't identify one video, throw a ResolveError that tells the user to open
@@ -200,7 +204,14 @@ async function resolveX(url, hint) {
     const mp4 = (v.video_info?.variants || []).filter((x) => x.content_type === 'video/mp4' && isHttp(x.url));
     mp4.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
     if (!mp4.length) throw new ResolveError('This video is only offered as a stream, not a file.');
-    return { kind: 'direct', url: mp4[0].url, index, thumb: smallXImage(v.media_url_https) };
+    const seconds = Number(v.video_info?.duration_millis) / 1000 || 0;
+    const variants = mp4.map((m) => ({
+      kind: 'direct', url: m.url, bitrate: m.bitrate || 0,
+      // "720p" means the short side, so portrait videos (720x1280) are 720 too.
+      height: (([, w, h]) => Math.min(Number(w), Number(h)) || 0)(m.url.match(/\/(\d+)x(\d+)\//) || [0, 0, 0]),
+      estBytes: m.bitrate && seconds ? Math.round((m.bitrate * seconds) / 8) : 0,
+    }));
+    return { ...variants[0], index, thumb: smallXImage(v.media_url_https), variants };
   });
 
   const user = /^\w{1,20}$/.test(source.user?.screen_name || '') ? source.user.screen_name : '';
@@ -233,17 +244,21 @@ export function decodeEntities(s) {
 
 // Reddit's own "packaged" MP4 already has sound. Only accept it from Reddit's media host.
 export function bestPackaged(raw) {
-  if (!raw) return null;
+  return packagedVariants(raw)[0]?.url || null;
+}
+
+// Every size of Reddit's ready-made MP4, tallest first.
+export function packagedVariants(raw) {
+  if (!raw) return [];
   try {
     const j = typeof raw === 'string' ? JSON.parse(decodeEntities(raw)) : raw;
-    let best = null;
+    const out = [];
     for (const p of j?.playbackMp4s?.permutations || []) {
       const url = decodeEntities(p?.source?.url || '');
-      const h = Number(p?.source?.dimensions?.height) || 0;
-      if (isSiteMediaUrl('reddit', url) && (!best || h > best.h)) best = { h, url };
+      if (isSiteMediaUrl('reddit', url) && !out.some((o) => o.url === url)) out.push({ kind: 'direct', url, height: Number(p?.source?.dimensions?.height) || 0 });
     }
-    return best?.url || null;
-  } catch { return null; }
+    return out.sort((a, b) => b.height - a.height);
+  } catch { return []; }
 }
 
 // Walks the opening tags named `name` in a page, in one pass. Used instead of running
@@ -269,10 +284,15 @@ const attrOf = (tag, name) => tag.match(new RegExp(`\\s${name}="([^"]*)"`, 'i'))
 // The post's page can hold other players (ads, recommended videos). Only read the one
 // inside the requested post's own element.
 export function packagedForPost(html, id) {
+  return bestPackaged(packagedJsonForPost(html, id));
+}
+
+// The raw list of sizes inside the requested post's own player (see packagedForPost).
+export function packagedJsonForPost(html, id) {
   for (const { at, tag } of tagsOf(html, 'shreddit-post')) {
     if (attrOf(tag, 'id') !== `t3_${id}`) continue;
     const end = html.indexOf('</shreddit-post>', at);
-    return bestPackaged(html.slice(at, end < 0 ? at + 200000 : end).match(/packaged-media-json="([^"]+)"/)?.[1]);
+    return html.slice(at, end < 0 ? at + 200000 : end).match(/packaged-media-json="([^"]+)"/)?.[1] || null;
   }
   return null;
 }
@@ -319,9 +339,9 @@ async function resolveReddit(url, hint) {
 
   // Reddit's own merged MP4 is listed only in the post's page, not its data. Both are
   // fetched at once to save a round trip; the page is cancelled if it turns out unneeded.
-  let packaged = bestPackaged(hint.packaged);
+  let packaged = packagedVariants(hint.packaged);
   const pageStop = new AbortController();
-  const pageHtml = packaged ? null
+  const pageHtml = packaged.length ? null
     : net(`https://www.reddit.com/comments/${id}/`, { ...WITH_LOGIN, signal: pageStop.signal }, 'Reddit').then((r) => r.text()).catch(() => null);
 
   let post = null;
@@ -348,13 +368,13 @@ async function resolveReddit(url, hint) {
   };
 
   // 1) Reddit's own merged MP4, from the page we're on or from the post's page.
-  if (!packaged && (rv || !post)) {
+  if (!packaged.length && (rv || !post)) {
     const html = await pageHtml;
-    if (html) packaged = packagedForPost(html, id);
+    if (html) packaged = packagedVariants(packagedJsonForPost(html, id));
   } else {
     pageStop.abort();                           // not a Reddit-hosted video: the page isn't needed
   }
-  if (packaged) return { ...base, items: [{ kind: 'direct', url: packaged, index: 1 }] };
+  if (packaged.length) return { ...base, items: [{ ...packaged[0], index: 1, variants: packaged }] };
 
   if (!post) throw new ResolveError(problem || 'Reddit didn’t return this post. Try again in a moment.');
 
@@ -383,12 +403,17 @@ async function resolveReddit(url, hint) {
   ]));
   // The post has sound but its audio track couldn't be found: save the picture and say so.
   if (!audio) return { ...base, items: [{ kind: 'direct', url: video, index: 1, noAudio: true }] };
-  return { ...base, items: [{ kind: 'mux', video, audio, index: 1 }] };
+  const seconds = Number(rv.duration) || 0;
+  const variants = (tracks.videos.length ? tracks.videos : [{ url: video, height: Number(rv.height) || 0, bandwidth: 0 }]).map((v) => ({
+    kind: 'mux', video: v.url, audio, height: v.height, bitrate: v.bandwidth + tracks.audioBandwidth,
+    estBytes: v.bandwidth && seconds ? Math.round(((v.bandwidth + tracks.audioBandwidth) * seconds) / 8) : 0,
+  }));
+  return { ...base, items: [{ ...variants[0], index: 1, variants }] };
 }
 
 // Reads the DASH manifest with regular expressions: there is no XML parser in a service worker.
 export function parseDash(xml, vid) {
-  const out = { video: null, audio: null };
+  const out = { video: null, audio: null, videos: [], audioBandwidth: 0 };
   for (const set of String(xml).split(/<AdaptationSet/i).slice(1)) {
     const isAudio = /contentType="audio"|mimeType="audio/i.test(set);
     const isVideo = /contentType="video"|mimeType="video/i.test(set);
@@ -403,21 +428,23 @@ export function parseDash(xml, vid) {
       if (!isSiteMediaUrl('reddit', url)) continue;
       // Taller wins; bandwidth breaks ties (height dominates because bandwidth < 1e9).
       const score = isVideo ? height * 1e9 + bandwidth : bandwidth;
-      if (!best || score > best.score) best = { score, url };
+      if (!best || score > best.score) best = { score, url, bandwidth };
+      if (isVideo && !out.videos.some((v) => v.url === url)) out.videos.push({ url, height, bandwidth });
     }
-    if (best && isAudio && !out.audio) out.audio = best.url;
+    if (best && isAudio && !out.audio) { out.audio = best.url; out.audioBandwidth = best.bandwidth; }
     if (best && isVideo && !out.video) out.video = best.url;
   }
+  out.videos.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth);
   return out;
 }
 
 async function redditDashTracks(dashUrl, vid) {
-  if (!isSiteMediaUrl('reddit', dashUrl)) return { video: null, audio: null };
+  if (!isSiteMediaUrl('reddit', dashUrl)) return { video: null, audio: null, videos: [], audioBandwidth: 0 };
   try {
     const res = await net(dashUrl, { cache: 'no-store' }, 'Reddit');
-    if (!isSiteMediaUrl('reddit', res.url || dashUrl)) return { video: null, audio: null };   // redirected off Reddit's media host
+    if (!isSiteMediaUrl('reddit', res.url || dashUrl)) return { video: null, audio: null, videos: [], audioBandwidth: 0 };   // redirected off Reddit's media host
     return parseDash(await res.text(), vid);
-  } catch { return { video: null, audio: null }; }
+  } catch { return { video: null, audio: null, videos: [], audioBandwidth: 0 }; }
 }
 
 async function firstExisting(urls) {
@@ -538,7 +565,7 @@ export function findFbVideoUrl(html, id) {
   if (!idPos.length) {
     // No ID to go by: only safe when the page holds exactly one video.
     const videos = distinctVideos(found);
-    return videos.length === 1 && oneVideo(videos[0].items) ? { url: best(videos[0].items) } : { ambiguous: true };
+    return videos.length === 1 && oneVideo(videos[0].items) ? withQualities(videos[0].items) : { ambiguous: true };
   }
 
   // Take the address nearest to the ID, whatever its quality, then prefer the best
@@ -547,7 +574,13 @@ export function findFbVideoUrl(html, id) {
   for (const f of found) for (const p of idPos) { const d = Math.abs(f.pos - p); if (d < nearest) { nearest = d; anchor = p; } }
   if (nearest >= FB_NEAR) return null;
   const same = found.filter((f) => Math.abs(f.pos - anchor) < Math.max(FB_SAME, nearest + 1));
-  return oneVideo(same) ? { url: best(same) } : { url: found.filter((f) => Math.abs(f.pos - anchor) === nearest)[0].url };
+  return oneVideo(same) ? withQualities(same) : { url: found.filter((f) => Math.abs(f.pos - anchor) === nearest)[0].url };
+}
+
+// The best address of one video, plus its other qualities (HD first, then SD).
+function withQualities(items) {
+  const urls = [...items].sort((x, y) => x.rank - y.rank).map((i) => i.url).filter((u, i, all) => all.indexOf(u) === i);
+  return { url: urls[0], qualities: urls };
 }
 
 async function resolveFacebook(url, hint) {
@@ -569,9 +602,9 @@ async function resolveFacebook(url, hint) {
     .replace(/\s*\|\s*Facebook\s*$/i, '').trim();
   if (!title || /^(facebook|watch|video)$/i.test(title)) title = metaContent(html, 'og:description') || hint.titleHint || `Facebook video ${id || ''}`.trim();
   return {
-    site: 'facebook', id: id || shortHash(video.url), title, author: '',
+    site: 'facebook', id: id || shortHash(finalUrl.split('?')[0]), title, author: '',
     sourceUrl: finalUrl, thumb: canonicalUrl(metaContent(html, 'og:image')),
-    items: [{ kind: 'direct', url: video.url, index: 1 }],
+    items: [{ kind: 'direct', url: video.url, index: 1, variants: (video.qualities || [video.url]).map((url) => ({ kind: 'direct', url })) }],
   };
 }
 

@@ -39,7 +39,18 @@ Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome 
 
 - **Hover:** point at a video on X, Reddit or Facebook and click the **Save** button that appears in its top-right corner.
 - **Right-click:** right-click a video or a post link and choose the **Save video** item marked ClipSnatcher.
-- **Paste:** click the toolbar icon (or press `Alt+Shift+V`), paste a post link, and press **Save**. If the current tab is already a post, its link is filled in for you.
+- **Paste:** click the toolbar icon (or press `Alt+Shift+V`), paste a post link, and press **Save**. If the current tab is already a post, its link is filled in for you. You can paste several links at once.
+- **Keyboard:** `Alt+Shift+S` saves the video in the current tab. `Alt+Shift+C` copies the last saved video to the clipboard (macOS, needs the helper). Change the keys at `chrome://extensions/shortcuts`.
+
+If you save a post you already have, ClipSnatcher says so and offers **Show in folder** or **Save again**.
+
+## Quality and size
+
+In Settings, choose **Best available**, **Smaller** (720p or the next size down), or **the best version under N MB**. The last one is for chat apps with an upload limit: ClipSnatcher checks each version's size with the site and saves the best one that fits, or the smallest if none does, and tells you its size.
+
+## Favourites, notes and backups
+
+Star a video and add a short note from its **More** menu; notes are searchable, and **Favourites** in history shows only starred videos. **Back up history** in Settings saves everything (entries, notes, favourites, thumbnails, not the videos) to one file, and **Restore from a backup** adds it back on this or another computer.
 
 ## Where files go
 

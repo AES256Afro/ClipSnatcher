@@ -33,11 +33,11 @@
     </div>
   </header>
   <form id="form">
-    <input type="text" inputmode="url" id="url" aria-label="Post link" placeholder="Paste a post link (X, Reddit, Facebook)" autocomplete="off" spellcheck="false">
+    <input type="text" inputmode="url" id="url" aria-label="Post link, or several links" placeholder="Paste a post link (or several)" autocomplete="off" spellcheck="false">
     <button class="btn primary" id="go" type="submit"></button>
   </form>
   <div class="status" id="status" role="status"></div>
-  <div class="confirm" id="confirm" hidden><button class="btn small" id="confirmYes" type="button"></button><button class="btn small" id="confirmNo" type="button">Cancel</button></div>
+  <div class="confirm" id="confirm" role="group" aria-label="Choose" hidden></div>
   <div class="section"><h2>Recent</h2><a href="#" id="all" hidden>See all</a></div>
   <div id="recent" role="list"></div>
   <script type="module" src="popup.js"></script>

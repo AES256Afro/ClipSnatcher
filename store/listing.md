@@ -33,6 +33,9 @@ THREE WAYS TO SAVE
 SEARCHABLE HISTORY
 Every saved video is listed with its post title, author, site and date. Search by title, author, site or link. Click a thumbnail to play the video, or show it in its folder, open the original post, copy the link, download it again, or remove it with Undo. Rows show live download progress and say plainly when something failed.
 
+SIZE THAT FITS
+Choose the best quality, a smaller version, or the best version under a size you pick, so a clip fits your chat app's upload limit. Already saved a post? ClipSnatcher tells you instead of saving it twice.
+
 ORGANIZED DOWNLOADS
 Videos are saved to a ClipSnatcher folder inside your Downloads folder, sorted by site, and named after the post.
 

@@ -125,6 +125,8 @@ Changed from the plan as written:
 
 ## Milestone 4: worth sharing
 
+**Status: items 35 to 40 implemented in version 1.4.0, plus pasting several links (from item 42).** Not done: the Windows copy helper (41), because there's no Windows computer to build or test it on; file-name templates and multi-select (42), which stay for later. An independent review (10 sweeps, the last four clean) found 17 issues (2 medium, both from restoring a crafted backup; 15 low) and 5 uncertain ones. All 17 and three of the uncertain ones are fixed and tested; those fixes have not themselves been reviewed. Tested with 134 automated tests and 81 checks in real Chrome, including quality choice against a live X post (the "under 1 MB" pick was confirmed by the size of the saved file, and Chrome was confirmed to get real file sizes from X). Not tested: the keyboard shortcuts (a headless browser can't press them) and "copy when saved", which needs the copy helper.
+
 35. **Size-aware quality:** Best, Smaller, or "fit under N MB" for chat upload limits. The data is already fetched and thrown away.
 36. **Save and copy:** optionally copy the file as soon as it finishes.
 37. **Duplicate detection:** "Already saved" with Show in folder and Save again.

@@ -1,6 +1,6 @@
 {
   "name": "clipsnatcher",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Chrome extension that saves videos from X, Reddit and Facebook posts. The extension itself is in extension/ and needs no build step.",
   "license": "MIT",

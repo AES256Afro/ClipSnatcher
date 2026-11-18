@@ -2,6 +2,16 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
+## 1.4.0 (2026-11-18)
+
+- **Video quality:** a new setting picks Best available, Smaller (720p or the next size down), or the best version under a size you choose, for chat apps with an upload limit. Sizes are checked with the site's own video host before saving; if nothing fits, the smallest is saved and you're told its size.
+- **Already saved:** saving a post you already have says so, with Show in folder and Save again, instead of making a second copy. If the file was deleted, it is saved again without asking.
+- **Copy when saved (macOS):** an optional setting copies each video to the clipboard as soon as it finishes, ready to paste into Discord. Needs the copy helper.
+- **Keyboard shortcuts:** Alt+Shift+S saves the video in the current tab; Alt+Shift+C copies the last saved video. In history, "/" jumps to search and Escape clears it.
+- **Favourites and notes:** star a video and add a short note; notes are searchable, and history has a Favourites filter.
+- **Back up and restore:** one file with your whole history, notes, favourites and thumbnails. Restoring adds what's missing and never pushes out existing entries. Nothing in a backup file is trusted: it pre-approves no download host, is tied to no download on this computer, never counts as "already saved", and its file paths are not handed to the copy helper.
+- **Paste several links** into the popup at once; they are saved one after another with a summary.
+
 ## 1.3.0 (2026-11-18)
 
 Faster and easier to maintain. Nothing changes in how you use it.
