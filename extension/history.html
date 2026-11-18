@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipStash History</title>
+<link rel="icon" href="icons/32.png">
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { font-size: 13.5px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
+  .brand img { width: 26px; height: 26px; }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; position: sticky; top: 0; background: var(--bg); padding: 8px 0; z-index: 1; }
+  .tools input { flex: 1 1 260px; }
+  .chips { display: flex; gap: 4px; }
+  .chip { appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 999px; height: 30px; padding: 0 12px; font: inherit; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .count { color: var(--muted); font-size: 12.5px; margin: 4px 8px 6px; }
+  .row { grid-template-columns: 96px 1fr auto; padding: 10px; }
+  .thumb { width: 96px; height: 60px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: 10px 14px; border-radius: 10px; background: var(--text); color: var(--bg); font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); display: none; }
+  #toast.err { background: var(--err); color: #fff; }
+  #more { display: block; margin: 12px auto; }
+  @media (max-width: 640px) {
+    .row { grid-template-columns: 64px 1fr; }
+    .thumb { width: 64px; height: 44px; }
+    .actions { grid-column: 1 / -1; flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><img src="icons/48.png" alt="">ClipStash history</div>
+    <a class="btn" href="options.html" id="settings"></a>
+  </header>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Search by title, author or link" autofocus>
+    <div class="chips" id="chips">
+      <button class="chip" data-site="" aria-pressed="true">All</button>
+      <button class="chip" data-site="x" aria-pressed="false">X</button>
+      <button class="chip" data-site="reddit" aria-pressed="false">Reddit</button>
+      <button class="chip" data-site="facebook" aria-pressed="false">Facebook</button>
+    </div>
+  </div>
+  <div class="count" id="count"></div>
+  <div id="list"></div>
+  <button class="btn" id="more" hidden>Show more</button>
+</div>
+<div id="toast" role="status"></div>
+<script type="module" src="history.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClipStash</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { width: 380px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; }
+  .brand img { width: 20px; height: 20px; }
+  .head-actions { display: flex; gap: 4px; }
+  form { display: flex; gap: 6px; padding: 0 12px; }
+  .status { padding: 6px 12px 0; }
+  .section { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 12px 4px; border-top: 1px solid var(--line); margin-top: 10px; }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  #recent { padding: 0 4px 8px; }
+  .row { grid-template-columns: 52px 1fr auto; }
+  .thumb { width: 52px; height: 36px; }
+  .title { -webkit-line-clamp: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><img src="icons/32.png" alt="">ClipStash</div>
+    <div class="head-actions">
+      <button class="btn icon" id="openHistory" title="History"></button>
+      <button class="btn icon" id="openSettings" title="Settings"></button>
+    </div>
+  </header>
+  <form id="form">
+    <input type="url" id="url" placeholder="Paste a post link (X, Reddit, Facebook)" autocomplete="off" spellcheck="false">
+    <button class="btn primary" id="go" type="submit"></button>
+  </form>
+  <div class="status" id="status"></div>
+  <div class="section"><h2>Recent</h2><a href="#" id="all">See all</a></div>
+  <div id="recent"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
