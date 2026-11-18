@@ -1,8 +1,8 @@
-// ClipStash page helper. Does nothing until your pointer is over a video: then it shows
+// ClipSnatcher page helper. Does nothing until your pointer is over a video: then it shows
 // one small "Save" button. No observers on the feed, no network requests, no tracking.
 (() => {
-  if (window.__clipstashLoaded) return;
-  window.__clipstashLoaded = true;
+  if (window.__clipsnatcherLoaded) return;
+  window.__clipsnatcherLoaded = true;
 
   const host = location.hostname;
   const SITE = /(^|\.)(x|twitter)\.com$/.test(host) ? 'x'
@@ -23,7 +23,7 @@
   let hostEl, btn, tip, current = null, hideTimer = 0, busy = false;
 
   function build() {
-    hostEl = document.createElement('clipstash-ui');
+    hostEl = document.createElement('clipsnatcher-ui');
     hostEl.style.cssText = 'all:initial;position:fixed;z-index:2147483647;top:0;left:0;display:none;';
     const root = hostEl.attachShadow({ mode: 'closed' });
     root.innerHTML = `
@@ -43,7 +43,7 @@
           border-radius: 8px; background: #111; color: #fff; font: 12px/1.35 -apple-system, BlinkMacSystemFont, sans-serif;
           box-shadow: 0 4px 14px rgba(0,0,0,.35); display: none; }
       </style>
-      <button type="button" title="Save this video (ClipStash)"></button>
+      <button type="button" title="Save this video (ClipSnatcher)"></button>
       <div class="tip"></div>`;
     btn = root.querySelector('button');
     tip = root.querySelector('.tip');
@@ -175,9 +175,9 @@
     const hint = gather(current);
     let res;
     try {
-      res = await chrome.runtime.sendMessage({ type: 'clipstash:download', url: hint.postUrl || hint.videoSrc || location.href, hint });
+      res = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', url: hint.postUrl || hint.videoSrc || location.href, hint });
     } catch (err) {
-      res = { ok: false, error: 'ClipStash was updated or reloaded. Refresh this page and try again.' };
+      res = { ok: false, error: 'ClipSnatcher was updated or reloaded. Refresh this page and try again.' };
     }
     busy = false;
     showResult(res);
@@ -196,7 +196,7 @@
   document.addEventListener('contextmenu', (e) => { lastRightClick = { x: e.clientX, y: e.clientY, t: Date.now() }; }, { passive: true, capture: true });
 
   chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
-    if (msg?.type === 'clipstash:context') {
+    if (msg?.type === 'clipsnatcher:context') {
       let c = null;
       if (lastRightClick && Date.now() - lastRightClick.t < 60000) {
         const f = videoAt(lastRightClick.x, lastRightClick.y);
@@ -205,14 +205,14 @@
       sendResponse(c ? gather(c) : { ...gather(null), postUrl: null });
       return;
     }
-    if (msg?.type === 'clipstash:toast') {
+    if (msg?.type === 'clipsnatcher:toast') {
       const r = msg.result;
       toast(r?.ok ? `Saved: ${r.title || 'video'}` : (r?.error || 'Download failed.'), r?.ok);
     }
   });
 
   function toast(text, ok) {
-    const t = document.createElement('clipstash-toast');
+    const t = document.createElement('clipsnatcher-toast');
     t.style.cssText = `all:initial;position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:340px;padding:10px 14px;border-radius:10px;
       font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#fff;background:${ok ? '#1a7f37' : '#cf222e'};
       box-shadow:0 6px 20px rgba(0,0,0,.3);`;

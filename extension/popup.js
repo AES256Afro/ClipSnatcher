@@ -29,7 +29,7 @@ $('form').addEventListener('submit', async (e) => {
   if (!url) return say('Paste a link first.', 'err');
   $('go').disabled = true;
   say('Finding the video…');
-  const r = await chrome.runtime.sendMessage({ type: 'clipstash:download', url, hint: {} });
+  const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', url, hint: {} });
   $('go').disabled = false;
   if (r?.ok) { say(`Saving: ${r.title}${r.warning ? ` (${r.warning})` : ''}`, 'ok'); $('url').value = ''; }
   else say(r?.error || 'Something went wrong.', 'err');

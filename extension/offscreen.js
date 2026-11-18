@@ -32,7 +32,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const now = Date.now();
       if (now - last < 1500) return;          // also keeps the service worker awake
       last = now;
-      chrome.runtime.sendMessage({ type: 'clipstash:progress', jobId: msg.jobId, label, got, total }).catch(() => {});
+      chrome.runtime.sendMessage({ type: 'clipsnatcher:progress', jobId: msg.jobId, label, got, total }).catch(() => {});
     };
     (async () => {
       const [v, a] = await Promise.all([fetchBytes(msg.video, 'video', onProgress), fetchBytes(msg.audio, 'audio', onProgress)]);

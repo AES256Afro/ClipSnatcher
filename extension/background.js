@@ -1,9 +1,9 @@
-// ClipStash background worker. No analytics, no remote servers: it only talks to the
+// ClipSnatcher background worker. No analytics, no remote servers: it only talks to the
 // site that hosts the post you asked for, and to Chrome's own downloads system.
 import { resolve, detectSite, shortHash } from './lib/resolve.js';
 import { getSettings, addEntry, updateEntry, updateByDownloadId, removeEntries, getHistory } from './lib/store.js';
 
-const HELPER = 'com.clipstash.helper';
+const HELPER = 'com.clipsnatcher.helper';
 const SITE_NAMES = { x: 'X', reddit: 'Reddit', facebook: 'Facebook', web: 'Web' };
 const POST_PATTERNS = [
   '*://x.com/*/status/*', '*://twitter.com/*/status/*', '*://mobile.twitter.com/*/status/*',
@@ -16,16 +16,16 @@ const SITE_PAGES = ['*://x.com/*', '*://twitter.com/*', '*://*.reddit.com/*', '*
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: 'cs-video', title: 'Save video with ClipStash', contexts: ['video'] });
-    chrome.contextMenus.create({ id: 'cs-link', title: 'Save video from this link (ClipStash)', contexts: ['link'], targetUrlPatterns: POST_PATTERNS });
-    chrome.contextMenus.create({ id: 'cs-page', title: 'Save video from this post (ClipStash)', contexts: ['page', 'frame'], documentUrlPatterns: SITE_PAGES });
+    chrome.contextMenus.create({ id: 'cs-video', title: 'Save video with ClipSnatcher', contexts: ['video'] });
+    chrome.contextMenus.create({ id: 'cs-link', title: 'Save video from this link (ClipSnatcher)', contexts: ['link'], targetUrlPatterns: POST_PATTERNS });
+    chrome.contextMenus.create({ id: 'cs-page', title: 'Save video from this post (ClipSnatcher)', contexts: ['page', 'frame'], documentUrlPatterns: SITE_PAGES });
   });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   let hint = null;
   if (tab?.id != null) {
-    try { hint = await chrome.tabs.sendMessage(tab.id, { type: 'clipstash:context' }, { frameId: info.frameId || 0 }); } catch { /* no content script here */ }
+    try { hint = await chrome.tabs.sendMessage(tab.id, { type: 'clipsnatcher:context' }, { frameId: info.frameId || 0 }); } catch { /* no content script here */ }
   }
   hint = hint || {};
   if (info.srcUrl && !info.srcUrl.startsWith('blob:')) hint.videoSrc = hint.videoSrc || info.srcUrl;
@@ -38,7 +38,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const result = await startDownload(url, hint);
   flashBadge(result.ok);
-  if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'clipstash:toast', result }, { frameId: info.frameId || 0 }).catch(() => {});
+  if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'clipsnatcher:toast', result }, { frameId: info.frameId || 0 }).catch(() => {});
 });
 
 function flashBadge(ok) {
@@ -52,13 +52,13 @@ function flashBadge(ok) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.target === 'offscreen') return;
   const handlers = {
-    'clipstash:download': () => startDownload(msg.url, msg.hint || {}),
-    'clipstash:redownload': () => redownload(msg.id),
-    'clipstash:copyFile': () => copyFile(msg.id),
-    'clipstash:reveal': () => revealViaHelper(msg.id),
-    'clipstash:helperStatus': () => helperStatus(),
-    'clipstash:remove': () => removeEntries(msg.ids).then(() => ({ ok: true })),
-    'clipstash:progress': () => Promise.resolve({ ok: true }),
+    'clipsnatcher:download': () => startDownload(msg.url, msg.hint || {}),
+    'clipsnatcher:redownload': () => redownload(msg.id),
+    'clipsnatcher:copyFile': () => copyFile(msg.id),
+    'clipsnatcher:reveal': () => revealViaHelper(msg.id),
+    'clipsnatcher:helperStatus': () => helperStatus(),
+    'clipsnatcher:remove': () => removeEntries(msg.ids).then(() => ({ ok: true })),
+    'clipsnatcher:progress': () => Promise.resolve({ ok: true }),
   };
   const h = handlers[msg.type];
   if (!h) return;

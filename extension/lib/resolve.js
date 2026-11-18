@@ -169,7 +169,7 @@ async function resolveReddit(url, hint) {
     if (/i\.imgur\.com\/.+\.gifv$/i.test(ext)) return { ...base, items: [{ kind: 'direct', url: ext.replace(/\.gifv$/i, '.mp4') }] };
     if (looksLikeDirectVideo(ext)) return { ...base, items: [{ kind: 'direct', url: ext }] };
     if (post?.is_gallery) throw new ResolveError('That Reddit post is an image gallery, not a video.');
-    if (post && post.domain && !/redd\.it$/.test(post.domain)) throw new ResolveError(`That post links to ${post.domain}, which ClipStash doesn’t download from.`);
+    if (post && post.domain && !/redd\.it$/.test(post.domain)) throw new ResolveError(`That post links to ${post.domain}, which ClipSnatcher doesn’t download from.`);
     throw new ResolveError('No Reddit video found in this post.');
   }
 

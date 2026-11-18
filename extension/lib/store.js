@@ -2,8 +2,8 @@
 // Nothing here ever leaves the browser.
 
 export const DEFAULT_SETTINGS = {
-  folder: 'ClipStash',     // subfolder inside Chrome's Downloads folder
-  perSite: true,           // ClipStash/X, ClipStash/Reddit, ...
+  folder: 'ClipSnatcher',     // subfolder inside Chrome's Downloads folder
+  perSite: true,           // ClipSnatcher/X, ClipSnatcher/Reddit, ...
   hoverButton: true,       // floating "Save" button over videos
   authorInName: true,      // prefix filenames with @author when known
 };

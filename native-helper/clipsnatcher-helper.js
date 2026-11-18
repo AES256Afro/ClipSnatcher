@@ -1,5 +1,5 @@
 #!/usr/bin/osascript -l JavaScript
-// ClipStash copy helper (macOS). Chrome starts this when you press "Copy" in ClipStash.
+// ClipSnatcher copy helper (macOS). Chrome starts this when you press "Copy" in ClipSnatcher.
 // It reads one message from Chrome and can only do three things:
 //   ping                -> reply with version
 //   copyFile {path}     -> put that file on the clipboard (like Cmd+C in Finder)

@@ -1,23 +1,23 @@
 #!/bin/bash
-# Installs the ClipStash copy helper for Chrome (and Brave/Edge/Chromium if present).
+# Installs the ClipSnatcher copy helper for Chrome (and Brave/Edge/Chromium if present).
 # Only writes inside your home folder. Undo with: bash uninstall.sh
 set -euo pipefail
 
 EXT_ID="phdbcmaifcaagmfkmbdhokgmkldllajj"   # fixed by the "key" in extension/manifest.json
-HOST="com.clipstash.helper"
+HOST="com.clipsnatcher.helper"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DEST="$HOME/Library/Application Support/ClipStash"
+DEST="$HOME/Library/Application Support/ClipSnatcher"
 
 mkdir -p "$DEST"
-cp "$HERE/clipstash-helper.js" "$DEST/clipstash-helper.js"
-chmod 755 "$DEST/clipstash-helper.js"
-xattr -d com.apple.quarantine "$DEST/clipstash-helper.js" 2>/dev/null || true
+cp "$HERE/clipsnatcher-helper.js" "$DEST/clipsnatcher-helper.js"
+chmod 755 "$DEST/clipsnatcher-helper.js"
+xattr -d com.apple.quarantine "$DEST/clipsnatcher-helper.js" 2>/dev/null || true
 
 MANIFEST=$(cat <<JSON
 {
   "name": "$HOST",
-  "description": "ClipStash copy helper: puts a saved video file on the clipboard",
-  "path": "$DEST/clipstash-helper.js",
+  "description": "ClipSnatcher copy helper: puts a saved video file on the clipboard",
+  "path": "$DEST/clipsnatcher-helper.js",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXT_ID/"]
 }
@@ -33,7 +33,10 @@ for browser in "Google/Chrome" "Google/Chrome Beta" "Google/Chrome Canary" "Chro
     echo "  installed for $browser"
     installed=$((installed+1))
   fi
+  # Remove the helper from before the rename (ClipStash), if present.
+  rm -f "$base/NativeMessagingHosts/com.clipstash.helper.json"
 done
+rm -rf "$HOME/Library/Application Support/ClipStash"
 
-echo "ClipStash copy helper installed ($installed browser(s))."
-echo "Open ClipStash settings and click 'Check again'."
+echo "ClipSnatcher copy helper installed ($installed browser(s))."
+echo "Open ClipSnatcher settings and click 'Check again'."

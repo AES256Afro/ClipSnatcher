@@ -31,7 +31,7 @@ async function stats() {
 
 $('installCmd').textContent = 'bash ~/Projects/ClipSnatcher/native-helper/install.sh';
 async function checkHelper() {
-  const r = await chrome.runtime.sendMessage({ type: 'clipstash:helperStatus' });
+  const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:helperStatus' });
   $('helperDot').className = 'dot ' + (r?.ok ? 'on' : 'off');
   $('helperText').textContent = r?.ok ? `Helper installed (v${r.version || '1'}). Copy puts the actual video on your clipboard.` : 'Helper not installed.';
 }
@@ -41,12 +41,12 @@ $('copyCmd').onclick = async () => { await navigator.clipboard.writeText($('inst
 $('export').onclick = async () => {
   const h = (await getHistory()).map(({ thumb, ...rest }) => rest);
   const url = URL.createObjectURL(new Blob([JSON.stringify(h, null, 2)], { type: 'application/json' }));
-  const a = Object.assign(document.createElement('a'), { href: url, download: `clipstash-history-${new Date().toISOString().slice(0, 10)}.json` });
+  const a = Object.assign(document.createElement('a'), { href: url, download: `clipsnatcher-history-${new Date().toISOString().slice(0, 10)}.json` });
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 };
 $('clear').onclick = async () => {
-  if (!confirm('Clear all ClipStash history? Your video files are not deleted.')) return;
+  if (!confirm('Clear all ClipSnatcher history? Your video files are not deleted.')) return;
   await clearHistory();
   stats();
   say('History cleared.', 'ok');

@@ -80,7 +80,7 @@ export async function handleAction(act, entry, say, cached) {
   const live = cached || (entry.downloadId != null ? (await chrome.downloads.search({ id: entry.downloadId }))[0] : null);
   switch (act) {
     case 'copy': {
-      const r = await chrome.runtime.sendMessage({ type: 'clipstash:copyFile', id: entry.id });
+      const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:copyFile', id: entry.id });
       if (r?.ok) return say('Video copied — paste it into Discord, Messages, etc.', 'ok');
       if (r?.needsHelper) {
         if (live?.exists) { chrome.downloads.show(entry.downloadId); return say('Copy helper not installed, so the file is shown in Finder: press ⌘C there, then paste. (Install the helper in Settings for one-click copy.)', 'err'); }
@@ -90,7 +90,7 @@ export async function handleAction(act, entry, say, cached) {
     case 'show':
       if (live?.exists) { chrome.downloads.show(entry.downloadId); return; }
       {
-        const r = await chrome.runtime.sendMessage({ type: 'clipstash:reveal', id: entry.id }).catch(() => null);
+        const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:reveal', id: entry.id }).catch(() => null);
         if (!r?.ok) say(live?.exists === false ? 'File was moved or deleted. Use Download again.' : 'Chrome no longer tracks this file. Use Download again.', 'err');
       }
       return;
@@ -105,11 +105,11 @@ export async function handleAction(act, entry, say, cached) {
       return say('Post link copied.', 'ok');
     case 'redo': {
       say('Downloading again…');
-      const r = await chrome.runtime.sendMessage({ type: 'clipstash:redownload', id: entry.id });
+      const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:redownload', id: entry.id });
       return say(r?.ok ? 'Started.' : (r?.error || 'Failed.'), r?.ok ? 'ok' : 'err');
     }
     case 'remove':
-      await chrome.runtime.sendMessage({ type: 'clipstash:remove', ids: [entry.id] });
+      await chrome.runtime.sendMessage({ type: 'clipsnatcher:remove', ids: [entry.id] });
       return say('Removed from history (the file itself is untouched).', 'ok');
   }
 }
