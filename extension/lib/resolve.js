@@ -45,6 +45,19 @@ export function detectSite(url) {
   return null;
 }
 
+// True when an address is one post (or one video) on a supported site: the same rules
+// the lookups below use. The popup uses it to decide whether to pre-fill the current tab.
+export function isPostUrl(url) {
+  const u = canonicalUrl(url);
+  const site = u && detectSite(u);
+  if (!site) return false;
+  const { hostname, pathname } = new URL(u);
+  if (site === 'x') return /\/status(?:es)?\/\d+/.test(pathname);
+  if (site === 'facebook') return fbIsSinglePost(u);
+  return /\/comments\/[a-z0-9]+/i.test(pathname) || /^\/(r|u|user)\/[^/]+\/s\/[A-Za-z0-9]+/.test(pathname)
+    || (hostname === 'redd.it' && /^\/[a-z0-9]+\/?$/i.test(pathname)) || (hostname === 'v.redd.it' && /^\/[A-Za-z0-9]+/.test(pathname));
+}
+
 export function looksLikeDirectVideo(url) {
   return /^https?:\/\/[^?#]+\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(url || '');
 }
@@ -89,10 +102,15 @@ function normalizeUrl(url, site) {
   } catch { return url; }
 }
 
-async function net(url, opts, label) {
+// Every request times out. A caller's own signal (to cancel a request that turned out
+// not to be needed) is combined with the timeout rather than replacing it.
+async function net(url, opts = {}, label) {
+  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout;
   try {
-    return await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), ...opts });
-  } catch {
+    return await fetch(url, { ...opts, signal });
+  } catch (e) {
+    if (opts.signal?.aborted) throw e;            // cancelled on purpose: not a network problem
     const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     throw new ResolveError(offline ? 'You appear to be offline.' : `Couldn’t reach ${label}. Check your connection and try again.`);
   }
@@ -142,6 +160,12 @@ export function xToken(id) {
   return ((Number(id) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, '');
 }
 
+// X serves smaller copies of an image when asked; the thumbnail is shrunk to 160 px anyway.
+function smallXImage(url) {
+  if (!isHttp(url)) return null;
+  try { const u = new URL(url); u.searchParams.set('name', 'small'); return u.href; } catch { return null; }
+}
+
 function xVideos(tweet) {
   return (tweet?.mediaDetails || []).filter((m) => m.type === 'video' || m.type === 'animated_gif');
 }
@@ -176,7 +200,7 @@ async function resolveX(url, hint) {
     const mp4 = (v.video_info?.variants || []).filter((x) => x.content_type === 'video/mp4' && isHttp(x.url));
     mp4.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
     if (!mp4.length) throw new ResolveError('This video is only offered as a stream, not a file.');
-    return { kind: 'direct', url: mp4[0].url, index, thumb: v.media_url_https || null };
+    return { kind: 'direct', url: mp4[0].url, index, thumb: smallXImage(v.media_url_https) };
   });
 
   const user = /^\w{1,20}$/.test(source.user?.screen_name || '') ? source.user.screen_name : '';
@@ -188,7 +212,7 @@ async function resolveX(url, hint) {
     title: textClean || (user ? `Video by @${user}` : `X video ${id}`),
     author: user ? '@' + user : '',
     sourceUrl: `https://x.com/${user || 'i'}/status/${postId}`,
-    thumb: picked[0].v.media_url_https || null,
+    thumb: smallXImage(picked[0].v.media_url_https),
     items,
   };
 }
@@ -293,6 +317,13 @@ async function resolveReddit(url, hint) {
   const canonical = await redditCanonical(url);
   const id = redditPostId(canonical);
 
+  // Reddit's own merged MP4 is listed only in the post's page, not its data. Both are
+  // fetched at once to save a round trip; the page is cancelled if it turns out unneeded.
+  let packaged = bestPackaged(hint.packaged);
+  const pageStop = new AbortController();
+  const pageHtml = packaged ? null
+    : net(`https://www.reddit.com/comments/${id}/`, { ...WITH_LOGIN, signal: pageStop.signal }, 'Reddit').then((r) => r.text()).catch(() => null);
+
   let post = null;
   let problem = '';
   try {
@@ -317,12 +348,11 @@ async function resolveReddit(url, hint) {
   };
 
   // 1) Reddit's own merged MP4, from the page we're on or from the post's page.
-  let packaged = bestPackaged(hint.packaged);
   if (!packaged && (rv || !post)) {
-    try {
-      const html = await (await net(`https://www.reddit.com/comments/${id}/`, WITH_LOGIN, 'Reddit')).text();
-      packaged = packagedForPost(html, id);
-    } catch { /* fall through */ }
+    const html = await pageHtml;
+    if (html) packaged = packagedForPost(html, id);
+  } else {
+    pageStop.abort();                           // not a Reddit-hosted video: the page isn't needed
   }
   if (packaged) return { ...base, items: [{ kind: 'direct', url: packaged, index: 1 }] };
 

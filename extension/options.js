@@ -53,8 +53,9 @@ $('shortcuts').onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 
 
 async function stats() {
   const h = await getHistory();
-  const bytes = await chrome.storage.local.getBytesInUse('history').catch(() => 0);
-  $('stats').textContent = `${h.length} video${h.length === 1 ? '' : 's'} in history${bytes ? ` (${Math.max(1, Math.round(bytes / 1024))} KB)` : ''}.`;
+  const bytes = await chrome.storage.local.getBytesInUse(null).catch(() => 0);
+  const size = bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  $('stats').textContent = `${h.length} video${h.length === 1 ? '' : 's'} in history${bytes ? `, using ${size} including thumbnails` : ''}.`;
 }
 
 /* ---------------------------------------------------------------- copy helper */
@@ -100,7 +101,7 @@ $('copyCmd').onclick = async () => { await navigator.clipboard.writeText($('inst
 /* ------------------------------------------------------------------ your data */
 
 $('export').onclick = async () => {
-  const h = (await getHistory()).map(({ thumb, ...rest }) => rest);
+  const h = (await getHistory()).map(({ thumb, ...rest }) => rest);   // thumbnails are not exported
   const url = URL.createObjectURL(new Blob([JSON.stringify(h, null, 2)], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `clipsnatcher-history-${new Date().toISOString().slice(0, 10)}.json` });
   a.click();

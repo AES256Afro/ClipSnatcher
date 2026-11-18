@@ -1,5 +1,9 @@
 // Shared UI pieces for the popup and the history page.
-import { isEntryDownload, failureReason } from './store.js';
+import { isEntryDownload, failureReason, getHistory, getThumbs, THUMB_PREFIX } from './store.js';
+import { FOLDER_NAMES as SITE_LABEL } from './names.js';
+
+export { getHistory, getThumbs };
+export const isThumbChange = (changes) => Object.keys(changes).some((k) => k.startsWith(THUMB_PREFIX));
 
 export const ICON = {
   copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>',
@@ -18,7 +22,6 @@ export const ICON = {
   history: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9L2.5 5.7"/><path d="M2.5 2.5v3.2h3.2M8 5v3.2l2 1.3"/></svg>',
 };
 
-const SITE_LABEL = { x: 'X', reddit: 'Reddit', facebook: 'Facebook', web: 'Web' };
 
 // The copy helper is macOS-only, and file-manager wording differs by system.
 export const platform = { mac: true };
@@ -46,18 +49,37 @@ export function fmtBytes(n) {
   return `${n.toFixed(n < 10 && i ? 1 : 0)} ${u[i]}`;
 }
 
-export async function getHistory() {
-  const { history } = await chrome.storage.local.get('history');
-  return Array.isArray(history) ? history : [];
-}
+// Chrome's record of each download, cached briefly so that searching or paging the
+// history doesn't ask Chrome about every row again. Rules:
+// - an entry is dropped when Chrome reports any change to that download, or erases or
+//   creates one with that id (ids are reused after the download list is cleared);
+// - downloads still in progress are never cached (their byte count keeps moving);
+// - entries expire after CACHE_MS, so a file deleted outside Chrome is noticed on the
+//   next refresh (Chrome only re-checks a file when the download is looked up);
+// - a lookup that was overtaken by a change is not written back.
+const CACHE_MS = 15000;
+const downloadCache = new Map();   // download id -> { item (or null), at }
+const generation = new Map();      // download id -> count of changes seen
+const forget = (id) => { downloadCache.delete(id); generation.set(id, (generation.get(id) || 0) + 1); };
+chrome.downloads.onChanged.addListener((d) => forget(d.id));
+chrome.downloads.onErased.addListener((id) => forget(id));
+chrome.downloads.onCreated.addListener((item) => forget(item.id));
 
 // Look up live state (progress, file still exists) for the rows on screen. A Chrome
 // download record only counts if it is the very download this entry was created for.
-export async function liveState(entries) {
+// `fresh` skips the cache (used for the once-a-second progress updates).
+export async function liveState(entries, { fresh = false } = {}) {
   const map = new Map();
   await Promise.all(entries.filter((e) => e.downloadId != null).map(async (e) => {
     try {
-      const [it] = await chrome.downloads.search({ id: e.downloadId });
+      const hit = fresh ? null : downloadCache.get(e.downloadId);
+      let it;
+      if (hit && Date.now() - hit.at < CACHE_MS) it = hit.item;
+      else {
+        const gen = generation.get(e.downloadId) || 0;
+        [it = null] = await chrome.downloads.search({ id: e.downloadId });
+        if ((generation.get(e.downloadId) || 0) === gen && it?.state !== 'in_progress') downloadCache.set(e.downloadId, { item: it, at: Date.now() });
+      }
       if (isEntryDownload(e, it, chrome.runtime.id)) map.set(e.id, it);
     } catch { /* ignore */ }
   }));
@@ -130,12 +152,12 @@ function menuActions(state, e) {
   return items;
 }
 
-export function rowHTML(e, live, { compact = false, progress = {} } = {}) {
+export function rowHTML(e, live, { compact = false, progress = {}, thumbs = new Map() } = {}) {
   const it = live.get(e.id);
   const state = rowState(e, it);
   const title = esc(e.title);
   const id = esc(e.id);
-  const thumbInner = THUMB_OK.test(e.thumb || '') ? '' : ICON.film;
+  const thumbInner = THUMB_OK.test(thumbs.get(e.id) || '') ? '' : ICON.film;
   // The thumbnail is a Play button only when Chrome can actually open the file.
   const thumb = state === 'ready'
     ? `<button class="thumb" data-act="play" data-slot="thumb" data-id="${id}" aria-label="Play: ${title}" title="Play">${thumbInner}<span class="thumb-play">${ICON.play}</span></button>`
@@ -162,9 +184,9 @@ export function renderList(container, entries, live, opts = {}) {
   const active = container.contains(document.activeElement) ? document.activeElement : null;
   const keep = active?.dataset?.id ? { id: active.dataset.id, act: active.dataset.act, slot: active.dataset.slot || '' } : null;
   container.innerHTML = entries.length ? entries.map((e) => rowHTML(e, live, opts)).join('') : (opts.emptyHTML || '');
-  const byId = new Map(entries.map((e) => [e.id, e.thumb]));
+  const thumbs = opts.thumbs || new Map();
   for (const row of container.querySelectorAll('.row')) {
-    const thumb = byId.get(row.dataset.id);
+    const thumb = thumbs.get(row.dataset.id);
     if (THUMB_OK.test(thumb || '')) row.querySelector('.thumb').style.backgroundImage = `url("${thumb}")`;
   }
   if (keep) {
@@ -185,7 +207,7 @@ export async function tickProgress(container, entries, live) {
   const mergingNow = entries.filter((e) => e.state === 'merging');
   if (!downloading.length && !mergingNow.length) return 'idle';
   const rowOf = (id) => [...container.querySelectorAll('.row')].find((r) => r.dataset.id === id)?.querySelector('[data-progress]');
-  const fresh = await liveState(downloading);
+  const fresh = await liveState(downloading, { fresh: true });
   for (const e of downloading) {
     const it = fresh.get(e.id);
     if (!it || it.state !== 'in_progress') return 'changed';

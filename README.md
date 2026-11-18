@@ -84,3 +84,27 @@ The **More** menu (the three dots) has the rest: open the original post, copy th
 - **Run in incognito windows.**
 
 Only save videos you have the right to download.
+
+## Development
+
+The extension has no build step: `extension/` is loaded into Chrome as it is. Node 20.3 or later is only needed to run the checks.
+
+```bash
+npm test              # the automated tests
+npm run check         # every file parses, the manifest is valid, versions match
+npm run build         # makes dist/clipsnatcher-<version>.zip for the Chrome Web Store
+```
+
+GitHub runs all three on every push.
+
+### Releasing a new version
+
+1. Set the new version in `extension/manifest.json` and `package.json`.
+2. Add a section for it at the top of `CHANGELOG.md`.
+3. Run `npm run check && npm test && npm run build`.
+4. Commit, then tag it: `git tag v<version>` and push the tag with the commit.
+5. Upload `dist/clipsnatcher-<version>.zip` to the Chrome Web Store.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

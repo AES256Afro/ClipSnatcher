@@ -1,4 +1,4 @@
-import { ICON, getHistory, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
+import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
 
 const $ = (id) => document.getElementById(id);
 $('settings').innerHTML = ICON.gear + 'Settings';
@@ -34,10 +34,12 @@ function say(text, kind = '', action = null, { sticky = false } = {}) {
 }
 
 const SITE_WORDS = { x: 'x twitter', reddit: 'reddit', facebook: 'facebook fb', web: 'web other' };
+const searchText = new WeakMap();   // entry -> lower-case text to search, built once per entry
 function matches(e, terms) {
   if (site && e.site !== site) return false;
   if (!terms.length) return true;
-  const hay = `${e.title} ${e.author} ${e.sourceUrl} ${e.path || ''} ${SITE_WORDS[e.site] || ''}`.toLowerCase();
+  let hay = searchText.get(e);
+  if (hay === undefined) searchText.set(e, hay = `${e.title} ${e.author} ${e.sourceUrl} ${e.path || ''} ${SITE_WORDS[e.site] || ''}`.toLowerCase());
   return terms.every((t) => hay.includes(t));
 }
 
@@ -53,13 +55,13 @@ async function render() {
   const terms = $('q').value.toLowerCase().split(/\s+/).filter(Boolean);
   const filtered = all.filter((e) => matches(e, terms));
   const rows = filtered.slice(0, limit);
-  const [state, progress] = await Promise.all([liveState(rows), mergeProgress()]);
+  const [state, progress, thumbs] = await Promise.all([liveState(rows), mergeProgress(), getThumbs(rows.map((e) => e.id))]);
   if (mine !== renderNo) return;          // a newer render is on its way; don't paint stale data
   shown = rows; live = state;
   announceMergeOutcomes(seenStates, shown, live, say);
   $('count').textContent = all.length ? `${filtered.length} of ${all.length} video${all.length === 1 ? '' : 's'}` : '';
   $('clearFilters').hidden = !(all.length && (terms.length || site));
-  renderList($('list'), shown, live, { progress, emptyHTML: all.length ? EMPTY_FILTERED : EMPTY_ALL });
+  renderList($('list'), shown, live, { progress, thumbs, emptyHTML: all.length ? EMPTY_FILTERED : EMPTY_ALL });
   $('more').hidden = filtered.length <= limit;
   $('cleanup').hidden = all.length === 0;
   watchProgress();
@@ -121,7 +123,13 @@ $('cleanup').onclick = async () => {
 
 wireList($('list'), (id) => { const entry = shown.find((x) => x.id === id); return { entry, live: entry && live.get(entry.id) }; }, say);
 
-chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && c.history) load(); });
+let thumbTimer;
+chrome.storage.onChanged.addListener((c, area) => {
+  if (area !== 'local') return;
+  if (c.history) load();
+  else if (isThumbChange(c)) { clearTimeout(thumbTimer); thumbTimer = setTimeout(render, 150); }   // a thumbnail arrived
+});
 let dlTimer;
 chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.filename) { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); } });
+chrome.downloads.onErased.addListener(() => { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); });   // Chrome's download list was cleared
 load();

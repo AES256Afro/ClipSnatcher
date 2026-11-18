@@ -1,7 +1,7 @@
 // ClipSnatcher background worker. No analytics, no remote servers: it only talks to the
 // site that hosts the post you asked for, and to Chrome's own downloads system.
 import { resolve, detectSite, canonicalUrl, ResolveError, hostOf, isHttp, isPlaylist, isSiteMediaUrl, SITE_LABEL } from './lib/resolve.js';
-import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason } from './lib/store.js';
+import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason, setThumb, migrateThumbs, pruneThumbs } from './lib/store.js';
 import { buildFilename } from './lib/names.js';
 
 const HELPER = 'com.clipsnatcher.helper';
@@ -36,7 +36,10 @@ function lockStorage() {
     .catch((e) => console.error('ClipSnatcher: could not restrict storage access', e));
 }
 lockStorage();
-chrome.runtime.onStartup.addListener(() => {});
+// Housekeeping on browser start-up and after an install or update: move thumbnails out of
+// history entries (versions before 1.3), then drop thumbnails of removed entries.
+const housekeeping = (thorough) => migrateThumbs().then(() => pruneThumbs({ thorough })).catch((e) => console.warn('ClipSnatcher: housekeeping failed', e));
+chrome.runtime.onStartup.addListener(() => housekeeping(false));
 
 // A merge lives only as long as this worker. Any entry still marked "merging" when the
 // worker starts was cut off, so it is marked as failed instead of spinning forever.
@@ -53,6 +56,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.contextMenus.create({ id: 'cs-page', title: 'Save this post’s video (ClipSnatcher)', contexts: ['page', 'frame'], documentUrlPatterns: POST_PAGE_PATTERNS });
   });
   if (details.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+  housekeeping(true);
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -281,7 +285,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
       mediaUrl, mediaHost: hostOf(mediaUrl), index: item.index, noAudio: !!item.noAudio,
       whole: item.kind === 'direct' && !item.noAudio,   // false when mediaUrl is only the picture track
       filename, path: null, downloadId: null, dlStart: null,
-      state: 'in_progress', error: '', bytes: 0, createdAt: Date.now(), thumb: null,
+      state: 'in_progress', error: '', bytes: 0, createdAt: Date.now(),
     };
     try {
       if (item.kind === 'mux') {
@@ -293,7 +297,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
         // out without waiting. The outcome is reported by a notice, like any later failure.
         entry.state = 'merging';
         await addEntry(entry);
-        thumb.then((data) => data && updateEntry(entry.id, { thumb: data }));
+        thumb.then((data) => data && setThumb(entry.id, data));
         finishMerge(entry, item, filename, ctx.tabId ?? null);
         saved.push(entry);
         continue;
@@ -303,7 +307,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
       Object.assign(entry, { downloadId, dlStart: dl?.startTime || null });
       await addEntry(entry);
       if (ctx.tabId != null) await sessionMap('tabs', (m) => { m[downloadId] = ctx.tabId; });
-      thumb.then((data) => data && updateEntry(entry.id, { thumb: data }));
+      thumb.then((data) => data && setThumb(entry.id, data));
       // The download may already have finished or failed before the entry existed.
       const now = await reconcile(downloadId, { quiet: true });
       if (now?.state === 'interrupted') {

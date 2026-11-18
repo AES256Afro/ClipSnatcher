@@ -40,16 +40,25 @@ async function fetchBytes(url, label, onProgress) {
   const total = Number(res.headers.get('content-length')) || 0;
   if (total > MAX_BYTES) throw new Error(`The ${label} is too large to merge.`);
   const reader = res.body.getReader();
+  // When the size is known, bytes go straight into one buffer of that size, so the file is
+  // held in memory once rather than twice. If the server sends more than it announced,
+  // fall back to collecting pieces.
+  let buf = total > 0 ? new Uint8Array(total) : null;
   const chunks = [];
   let got = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (got + value.length > MAX_BYTES) { reader.cancel().catch(() => {}); throw new Error(`The ${label} is too large to merge.`); }
+    if (buf && got + value.length <= buf.length) buf.set(value, got);
+    else {
+      if (buf) { chunks.push(buf.subarray(0, got)); buf = null; }
+      chunks.push(value);
+    }
     got += value.length;
-    if (got > MAX_BYTES) { reader.cancel().catch(() => {}); throw new Error(`The ${label} is too large to merge.`); }
     onProgress(label, got, total);
   }
+  if (buf) return got === buf.length ? buf : buf.subarray(0, got);
   const out = new Uint8Array(got);
   let o = 0;
   for (const c of chunks) { out.set(c, o); o += c.length; }

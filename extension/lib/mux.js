@@ -2,7 +2,6 @@
 // without re-encoding. Handles both regular and fragmented (DASH/CMAF) files.
 // Runs entirely in your browser.
 
-const CONTAINERS = new Set(['moov', 'trak', 'mdia', 'minf', 'stbl', 'edts', 'mvex', 'moof', 'traf', 'dinf']);
 const enc = new TextEncoder();
 
 function dv(buf) { return new DataView(buf.buffer, buf.byteOffset, buf.byteLength); }
@@ -42,8 +41,16 @@ function makeBox(type, parts) {
 }
 
 // --- field access inside full boxes -------------------------------------------------
+// A "full box" body starts with 1 byte of version and 3 bytes of flags. mvhd, tkhd and
+// mdhd then hold a creation and a modification time: 4 bytes each in version 0, 8 bytes
+// each in version 1. The fields this file needs come right after those times:
+//   mvhd: timescale (4), duration (4 or 8) ... next_track_ID (last 4 bytes of the box)
+//   tkhd: track_ID (4), reserved (4), duration (4 or 8)
+//   mdhd: timescale (4), duration (4 or 8)
 const body = (b) => b.start + b.hdr;            // first byte after the box header
 const version = (buf, b) => buf[body(b)];
+const afterTimes = (buf, b) => body(b) + 4 + (version(buf, b) === 1 ? 16 : 8);
+const is64 = (buf, b) => version(buf, b) === 1;
 
 function getU(buf, off, bytes) { const d = dv(buf); return bytes === 8 ? Number(d.getBigUint64(off)) : d.getUint32(off); }
 function setU(buf, off, bytes, val) {
@@ -58,18 +65,16 @@ function handlerType(buf, trak) {
 
 function mdhdTimescale(buf, trak) {
   const m = path(buf, trak, 'mdia', 'mdhd');
-  return getU(buf, body(m) + 4 + (version(buf, m) === 1 ? 16 : 8), 4);
+  return getU(buf, afterTimes(buf, m), 4);
 }
 
 function trackId(buf, trak) {
-  const t = kid(buf, trak, 'tkhd');
-  return getU(buf, body(t) + 4 + (version(buf, t) === 1 ? 16 : 8), 4);
+  return getU(buf, afterTimes(buf, kid(buf, trak, 'tkhd')), 4);
 }
 
 function mvhdInfo(buf, mvhd) {
-  const v1 = version(buf, mvhd) === 1;
-  const ts = body(mvhd) + 4 + (v1 ? 16 : 8);
-  return { tsOff: ts, timescale: getU(buf, ts, 4), durOff: ts + 4, durBytes: v1 ? 8 : 4, nextIdOff: mvhd.end - 4 };
+  const ts = afterTimes(buf, mvhd);
+  return { tsOff: ts, timescale: getU(buf, ts, 4), durOff: ts + 4, durBytes: is64(buf, mvhd) ? 8 : 4, nextIdOff: mvhd.end - 4 };
 }
 
 // Copy a trak out of its file, give it a new track_ID and rescale movie-timescale durations.
@@ -77,14 +82,15 @@ function rebuildTrak(src, trak, newId, scale) {
   const t = src.slice(trak.start, trak.end);
   const root = { type: 'trak', start: 0, size: t.length, hdr: trak.hdr, end: t.length };
   const tkhd = kid(t, root, 'tkhd');
-  const v1 = version(t, tkhd) === 1;
-  const idOff = body(tkhd) + 4 + (v1 ? 16 : 8);
+  const idOff = afterTimes(t, tkhd);
   setU(t, idOff, 4, newId);
-  const durOff = idOff + 8, durBytes = v1 ? 8 : 4;
+  const durOff = idOff + 8, durBytes = is64(t, tkhd) ? 8 : 4;   // skip track_ID and 4 reserved bytes
   if (scale !== 1) setU(t, durOff, durBytes, getU(t, durOff, durBytes) * scale);
+  // Edit list entries: segment_duration (movie timescale), media_time, rate (4 bytes).
+  // 12 bytes per entry in version 0, 20 in version 1. Only segment_duration is rescaled.
   const elst = path(t, root, 'edts', 'elst');
   if (elst && scale !== 1) {
-    const ev1 = version(t, elst) === 1;
+    const ev1 = is64(t, elst);
     const n = getU(t, body(elst) + 4, 4);
     let o = body(elst) + 8;
     for (let i = 0; i < n; i++) {
@@ -96,6 +102,8 @@ function rebuildTrak(src, trak, newId, scale) {
   return { bytes: t, root };
 }
 
+// stco (32-bit) and co64 (64-bit) list where each chunk of samples starts, counted from
+// the start of the file. Moving a track's data by `delta` bytes moves every entry.
 function shiftChunkOffsets(t, root, delta) {
   const stbl = path(t, root, 'mdia', 'minf', 'stbl');
   for (const b of kids(t, stbl)) {
@@ -155,6 +163,8 @@ export function muxAV(vBuf, aBuf) {
 
   if (!vFrag) {
     // Regular MP4: keep each source file intact inside one big mdat and shift chunk offsets.
+    // Layout: ftyp, moov, then a 16-byte mdat header (size 1 + 64-bit size, so it can pass
+    // 4 GB), then the whole video file, then the whole audio file.
     const moovLen = 8 + mvhd.length + vT.bytes.length + aT.bytes.length;
     const head = ftyp.length + moovLen + 16;
     shiftChunkOffsets(vT.bytes, vT.root, head);
@@ -213,6 +223,9 @@ function collectFragments(buf, tops, oldId, newId, timescale, order) {
     const baseOffsets = [];
     for (const traf of kids(moof, root).filter((b) => b.type === 'traf')) {
       const tfhd = kid(moof, traf, 'tfhd');
+      // tfhd: version/flags (4), track_ID (4), then base_data_offset (8) if flag 0x1 is set.
+      // That offset counts from the start of the file, so it has to follow the fragment
+      // to its new position; without it, offsets count from the moof and need no change.
       const flags = (moof[body(tfhd) + 1] << 16) | (moof[body(tfhd) + 2] << 8) | moof[body(tfhd) + 3];
       setU(moof, body(tfhd) + 4, 4, newId);
       if (flags & 0x1) baseOffsets.push(body(tfhd) + 8);

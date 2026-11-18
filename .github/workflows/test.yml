@@ -1,0 +1,23 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Consistency checks
+        run: node scripts/check.mjs
+      - name: Tests
+        run: node --test
+      - name: Store zip builds
+        run: bash scripts/build-store-zip.sh

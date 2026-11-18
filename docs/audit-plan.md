@@ -103,6 +103,16 @@ Changed from the plan as written:
 
 ## Milestone 3: stays fast and maintainable
 
+**Status: implemented in version 1.3.0. The licence is MIT.**
+
+An independent review of the changes (10 sweeps, the last two clean) found nothing high-severity, confirmed the MP4 code is byte-for-byte unchanged in behaviour, and found 10 issues (1 medium, 9 low) plus 2 uncertain ones. All 12 are fixed and tested; those fixes have not themselves been reviewed.
+
+Tests on the final code: 118 automated tests (`npm test`), and 67 checks in real Chrome (45 downloads and rows, 19 page-side, 3 upgrade from version 1.2). In one of four full Chrome runs, Tidy up reported one more missing file than expected; it did not happen again in three further runs, and the cause is not known.
+
+Changed from the plan as written:
+- History was not moved to IndexedDB. Only thumbnails moved out of the history list, into their own keys; they were most of its size, and this avoids rewriting the storage layer.
+- "Show more" still re-renders the whole list; with the download cache that is now cheap enough.
+
 26. **Tests and CI.** Node's built-in test runner for the merger, the link parsing and the file naming, run on every push.
 27. **Move history to IndexedDB**, one record per video with thumbnails stored as files. This removes the full rewrite on every change and may let `unlimitedStorage` go.
 28. **Start the download before fetching the thumbnail**, use the smallest suitable preview image, and time out.

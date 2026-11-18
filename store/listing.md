@@ -31,7 +31,7 @@ THREE WAYS TO SAVE
 • Open the extension and paste a post link
 
 SEARCHABLE HISTORY
-Every saved video is listed with its post title, author, site and date. Search by title, author or link. Click a thumbnail to play the video, or show it in its folder, open the original post, copy the link, download it again, or remove it with Undo. Rows show live download progress and say plainly when something failed.
+Every saved video is listed with its post title, author, site and date. Search by title, author, site or link. Click a thumbnail to play the video, or show it in its folder, open the original post, copy the link, download it again, or remove it with Undo. Rows show live download progress and say plainly when something failed.
 
 ORGANIZED DOWNLOADS
 Videos are saved to a ClipSnatcher folder inside your Downloads folder, sorted by site, and named after the post.
@@ -113,6 +113,13 @@ No login is needed for the basic test.
 4. Click the clock icon in the popup to open the history page and search for "sink".
 The native messaging helper is optional and not required for any of the above.
 ```
+
+## Account tab (once per developer account)
+
+| Field | Value |
+|---|---|
+| Contact email | Your email, then click the verification link Google sends (publishing is blocked until it is verified) |
+| Trader / non-trader declaration | Non-trader (free, no ads, no payments) |
 
 ## Things to know
 

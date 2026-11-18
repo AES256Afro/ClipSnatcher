@@ -1,4 +1,5 @@
-import { ICON, getHistory, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
+import { isPostUrl } from './lib/resolve.js';
+import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
 
 const $ = (id) => document.getElementById(id);
 $('openHistory').innerHTML = ICON.history;
@@ -39,9 +40,8 @@ function say(text, kind = '', action = null) {
 
 // If the current tab is a post, pre-fill it so it's one click. (The tab's address is
 // only visible to the extension on the sites it has access to.)
-const POST_RE = /^(https:\/\/(x|twitter)\.com\/[^/]+\/status\/\d+|https:\/\/(www\.|old\.)?reddit\.com\/r\/[^/]+\/comments\/|https:\/\/(www\.|web\.)?facebook\.com\/.*(\/videos\/|\/reel\/|\/watch))/;
 chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-  if (tab?.url && POST_RE.test(tab.url)) { $('url').value = tab.url; $('url').select(); }
+  if (tab?.url && isPostUrl(tab.url)) { $('url').value = tab.url; $('url').select(); }
   else $('url').focus();
 });
 
@@ -100,11 +100,11 @@ async function render() {
   await platformReady;
   const all = await getHistory();
   const list = all.slice(0, 6);
-  const [state, progress] = await Promise.all([liveState(list), mergeProgress()]);
+  const [state, progress, thumbs] = await Promise.all([liveState(list), mergeProgress(), getThumbs(list.map((e) => e.id))]);
   if (mine !== renderNo) return;          // a newer render is on its way; don't paint stale data
   entries = list; live = state;
   announceMergeOutcomes(seenStates, entries, live, say);
-  renderList($('recent'), entries, live, { compact: true, progress, emptyHTML: EMPTY });
+  renderList($('recent'), entries, live, { compact: true, progress, thumbs, emptyHTML: EMPTY });
   $('all').hidden = all.length === 0;
   $('all').textContent = all.length > list.length ? `See all ${all.length}` : 'Open history';
   watchProgress();
@@ -120,7 +120,8 @@ function watchProgress() {
   }, 1000);
 }
 render();
-chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && c.history) render(); });
+chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && (c.history || isThumbChange(c))) render(); });
 chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.filename) render(); });
+chrome.downloads.onErased.addListener(() => render());
 
 wireList($('recent'), (id) => { const entry = entries.find((x) => x.id === id); return { entry, live: entry && live.get(entry.id) }; }, say);

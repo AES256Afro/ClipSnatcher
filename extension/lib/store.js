@@ -1,5 +1,33 @@
 // Local-only storage: settings + download history live in chrome.storage.local.
 // Nothing here ever leaves the browser.
+//
+// Layout:
+//   settings          the options (see DEFAULT_SETTINGS)
+//   history           array of HistoryEntry, newest first, at most MAX_HISTORY
+//   thumb:<entry id>  that entry's small JPEG thumbnail as a data: URL. Kept apart from
+//                     `history` so that changing one entry doesn't rewrite every image.
+
+/**
+ * @typedef {Object} HistoryEntry
+ * @property {string} id            random id
+ * @property {string} title         post title (or file name)
+ * @property {string} author        "@handle", "r/subreddit" or ""
+ * @property {'x'|'reddit'|'facebook'|'web'} site
+ * @property {string} sourceUrl     the post (or page) the video came from
+ * @property {string} mediaUrl      the video file's address (Reddit: the picture-only track when merged)
+ * @property {string} mediaHost     host of mediaUrl; agreed to once, so "Download again" may reuse it
+ * @property {number} index         the video's position in its post (1-based)
+ * @property {boolean} noAudio      saved without sound
+ * @property {boolean} whole        mediaUrl is the complete video (false for a Reddit picture track)
+ * @property {string} filename      path relative to Downloads that was asked for
+ * @property {string|null} path     full path once Chrome reports it
+ * @property {number|null} downloadId  Chrome's download id
+ * @property {string|null} dlStart  that download's start time; with downloadId, identifies it
+ * @property {'merging'|'in_progress'|'complete'|'interrupted'} state
+ * @property {string} error         Chrome's error code, or REDIRECTED / MERGE_FAILED / MERGE_INTERRUPTED
+ * @property {number} bytes         file size once complete
+ * @property {number} createdAt     ms since 1970
+ */
 
 export const DEFAULT_SETTINGS = {
   folder: 'ClipSnatcher',     // subfolder inside Chrome's Downloads folder
@@ -94,7 +122,51 @@ export const removeEntries = (ids) => mutateHistory((list) => {
   for (let i = list.length - 1; i >= 0; i--) if (set.has(list[i].id)) list.splice(i, 1);
 });
 
-export const clearHistory = () => mutateHistory((list) => { list.length = 0; });
+export const clearHistory = () => mutateHistory((list) => { list.length = 0; }).then(() => pruneThumbs());
+
+/* ---------------------------------------------------------------- thumbnails */
+
+export const THUMB_PREFIX = 'thumb:';
+const thumbKey = (id) => THUMB_PREFIX + id;
+
+export const setThumb = (id, dataUrl) => chrome.storage.local.set({ [thumbKey(id)]: dataUrl });
+
+// Thumbnails for some entries, as a Map of entry id -> data URL.
+export async function getThumbs(ids) {
+  if (!ids.length) return new Map();
+  const got = await chrome.storage.local.get(ids.map(thumbKey));
+  return new Map(ids.filter((id) => typeof got[thumbKey(id)] === 'string').map((id) => [id, got[thumbKey(id)]]));
+}
+
+// Older versions kept thumbnails inside each history entry. Moves them to their own
+// keys. Safe to run any number of times.
+export const migrateThumbs = () => mutateHistory(async (list) => {
+  const moved = {};
+  let touched = false;
+  for (const e of list) {
+    if (!('thumb' in e)) continue;
+    if (typeof e.thumb === 'string' && e.thumb) moved[thumbKey(e.id)] = e.thumb;
+    delete e.thumb;                               // also the empty "thumb: null" older versions wrote
+    touched = true;
+  }
+  if (!touched) return NO_CHANGE;
+  await chrome.storage.local.set(moved);       // images first, so nothing is lost if this stops half-way
+  return Object.keys(moved).length;
+});
+
+// Deletes thumbnails whose entry is gone. Removed entries keep theirs until this runs
+// (on browser start-up, update and Clear history), so Undo can bring them back whole.
+// Runs in the history write queue, so it can't race an Undo that is putting an entry back.
+// Chrome before 130 has no way to list keys without reading every value, so there this
+// only runs when `thorough` is set (an update, or Clear history), not on every start-up.
+export const pruneThumbs = ({ thorough = true } = {}) => mutateHistory(async (list) => {
+  if (!chrome.storage.local.getKeys && !thorough) return NO_CHANGE;
+  const keys = chrome.storage.local.getKeys ? await chrome.storage.local.getKeys() : Object.keys(await chrome.storage.local.get(null));
+  const live = new Set(list.map((e) => thumbKey(e.id)));
+  const dead = keys.filter((k) => k.startsWith(THUMB_PREFIX) && !live.has(k));
+  if (dead.length) await chrome.storage.local.remove(dead);
+  return NO_CHANGE;                               // history itself is unchanged
+}).then(() => undefined);
 
 // Puts removed entries back (Undo). Only plain entry objects with an id that isn't
 // already present are accepted, and the list is kept newest first. An entry that was
@@ -106,7 +178,8 @@ export const restoreEntries = (entries, running = new Set()) => mutateHistory((l
   for (const e of entries.slice(0, MAX_HISTORY)) {
     if (!e || typeof e !== 'object' || typeof e.id !== 'string' || typeof e.title !== 'string' || !Number.isFinite(e.createdAt) || have.has(e.id)) continue;
     have.add(e.id);
-    back.push(e.state === 'merging' && !running.has(e.id) ? { ...e, state: 'interrupted', error: 'MERGE_INTERRUPTED' } : { ...e });
+    const { thumb, ...plain } = e;               // images live under their own keys, never inside an entry
+    back.push(plain.state === 'merging' && !running.has(plain.id) ? { ...plain, state: 'interrupted', error: 'MERGE_INTERRUPTED' } : plain);
   }
   if (!back.length) return NO_CHANGE;
   list.push(...back);
