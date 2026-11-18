@@ -57,10 +57,42 @@ function tempDir() {
   return dir;
 }
 
+// Links to check that the helper follows them. Junctions (folder links) need no special
+// rights. Symbolic links need Developer Mode or an administrator (GitHub's Windows runners
+// have both); `symlinks` is false when they can't be made here.
+let links;
+function linkDir() {
+  if (!links) {
+    const d = path.join(tempDir(), 'links');
+    const at = (...p) => path.join(d, ...p);
+    fs.mkdirSync(at('real'), { recursive: true });
+    fs.mkdirSync(at('sub'));
+    fs.mkdirSync(at('docs.txt'));
+    fs.writeFileSync(at('real', 'v.mp4'), 'not really a video');
+    fs.writeFileSync(at('real', 'a.txt'), 'text');
+    fs.symlinkSync(at('real'), at('via'), 'junction');            // a folder link on the way
+    fs.symlinkSync(at('docs.txt'), at('j.mp4'), 'junction');      // "video" that is a .txt folder
+    fs.symlinkSync(at('loopB'), at('loopA'), 'junction');         // two links pointing at each other
+    fs.symlinkSync(at('loopA'), at('loopB'), 'junction');
+    let symlinks = true;
+    try {
+      fs.symlinkSync('real\\a.txt', at('x.mp4'), 'file');           // relative, to a text file
+      fs.symlinkSync(at('real', 'v.mp4'), at('y.mp4'), 'file');     // full path, to a video
+      fs.symlinkSync('..\\real\\v.mp4', at('sub', 'z.mp4'), 'file'); // relative, up a folder
+      fs.symlinkSync('real\\gone.mp4', at('gone.mp4'), 'file');     // points nowhere
+      fs.symlinkSync('\\\\127.0.0.1\\c$\\x.mp4', at('net.mp4'), 'file'); // another computer
+      fs.symlinkSync(at('real'), at('dirlink'), 'dir');
+    } catch (e) {
+      if (e.code !== 'EPERM') throw e;
+      symlinks = false;
+    }
+    links = { at, symlinks };
+  }
+  return links;
+}
+
 test('Windows helper: ping answers with its version', { skip }, async () => {
-  const r = await talk({ action: 'ping' });
-  assert.equal(r.ok, true);
-  assert.match(r.version, /^\d+\.\d+\.\d+$/);
+  assert.deepEqual(await talk({ action: 'ping' }), { ok: true, version: '1.1.0' });
 });
 
 test('Windows helper: messages that are not objects, or not JSON, are refused', { skip }, async () => {
@@ -110,15 +142,49 @@ test('Windows helper: only video files that exist are accepted', { skip }, async
   assert.deepEqual(await talk({ action: 'nonsense', path: path.join(d, 'folder.mp4') + '\\..\\clip one.mp4' }), { ok: false, error: 'Unknown action.' });
 });
 
+const notVideo = { ok: false, error: 'Only video files can be copied.' };
+const notFound = { ok: false, error: 'File not found. It may have been moved or deleted.' };
+// "Unknown action." comes after the path checks, so it means the path was accepted.
+const accepted = { ok: false, error: 'Unknown action.' };
+const ask = (p) => talk({ action: 'nonsense', path: p });
+
+test('Windows helper: junctions (folder links) are followed, and the checks apply to where they lead', { skip }, async () => {
+  const { at } = linkDir();
+  assert.deepEqual(await ask(at('via', 'v.mp4')), accepted);
+  assert.deepEqual(await ask(at('via', 'a.txt')), notVideo);
+  assert.deepEqual(await ask(at('via', 'missing.mp4')), notFound);
+  assert.deepEqual(await ask(at('j.mp4')), notVideo, 'a link named .mp4 that points at a .txt folder');
+  assert.deepEqual(await talk({ action: 'copyFile', path: at('j.mp4') }), notVideo);
+  assert.deepEqual(await ask(at('loopA', 'v.mp4')), notFound);
+});
+
+test('Windows helper: symbolic links are followed to the real file, and the checks apply to that', { skip }, async (t) => {
+  const { at, symlinks } = linkDir();
+  if (!symlinks) return t.skip('symbolic links need Developer Mode or an administrator here');
+  assert.deepEqual(await talk({ action: 'copyFile', path: at('x.mp4') }), notVideo, 'x.mp4 -> a.txt');
+  assert.deepEqual(await talk({ action: 'reveal', path: at('x.mp4') }), notVideo);
+  assert.deepEqual(await ask(at('y.mp4')), accepted);
+  assert.deepEqual(await ask(at('sub', 'z.mp4')), accepted);
+  assert.deepEqual(await ask(at('dirlink', 'v.mp4')), accepted);
+  assert.deepEqual(await ask(at('gone.mp4')), notFound);
+  assert.deepEqual(await ask(at('net.mp4')), { ok: false, error: 'Bad path.' });
+});
+
 test('Windows helper: actions are case-sensitive', { skip }, async () => {
   assert.equal((await talk({ action: 'PING' })).ok, false);
   assert.deepEqual(await talk({ action: 'COPYFILE', path: path.join(tempDir(), 'clip one.mp4') }), { ok: false, error: 'Unknown action.' });
 });
 
 test('Windows helper: copyFile puts the video on the clipboard as a file, marked as a copy', { skip: skip || (process.env.CLIPSNATCHER_CLIPBOARD_TEST ? false : 'replaces your clipboard; set CLIPSNATCHER_CLIPBOARD_TEST=1 to run') }, async () => {
-  for (const name of ['clip one.mp4', 'clip é.webm']) {
-    const file = path.join(tempDir(), name);
-    assert.deepEqual(await talk({ action: 'copyFile', path: file }), { ok: true });
+  const { at, symlinks } = linkDir();
+  const cases = [
+    ['clip one.mp4', path.join(tempDir(), 'clip one.mp4')],
+    ['clip é.webm', path.join(tempDir(), 'clip é.webm')],
+    [at('via', 'v.mp4'), at('real', 'v.mp4')],   // the real file goes on the clipboard, not the link
+    ...(symlinks ? [[at('y.mp4'), at('real', 'v.mp4')]] : []),
+  ];
+  for (const [asked, file] of cases) {
+    assert.deepEqual(await talk({ action: 'copyFile', path: path.resolve(tempDir(), asked) }), { ok: true });
     // Read it back in a new process: the helper has exited, so this also shows the copy outlives it.
     const read = execFileSync('powershell.exe', ['-NoProfile', '-Sta', '-Command',
       '[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; ' +
