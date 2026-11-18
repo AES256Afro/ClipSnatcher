@@ -1,20 +1,36 @@
-import { ICON, rowHTML, applyThumbs, getHistory, liveState, runAction, tickProgress } from './lib/ui.js';
+import { ICON, getHistory, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
 
 const $ = (id) => document.getElementById(id);
 $('settings').innerHTML = ICON.gear + 'Settings';
 
 const PAGE = 60;
-let all = [], shown = [], live = new Map(), limit = PAGE, site = '', renderNo = 0;
+let all = [], shown = [], live = new Map(), limit = PAGE, site = '', renderNo = 0, progressTimer = 0;
 
-let toastTimer;
-function say(text, kind = '') {
-  const t = $('toast');
-  if (!text) { t.style.display = 'none'; return; }
-  t.textContent = text;
-  t.className = kind;
-  t.style.display = 'block';
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.style.display = 'none'), kind === 'err' ? 7000 : 3500);
+// Shows a notice at the bottom, optionally with one button ({ label, run }).
+// A notice stays until dismissed or replaced if it is an error, has a button, or is
+// marked `sticky` (a wait in progress). Plain confirmations fade after a few seconds.
+const seenStates = new Map();   // entry id -> state at the last render
+let noticeTimer;
+function say(text, kind = '', action = null, { sticky = false } = {}) {
+  const n = $('notice');
+  clearTimeout(noticeTimer);
+  n.replaceChildren();
+  n.hidden = !text;
+  if (!text) return;
+  n.className = 'notice ' + kind;
+  n.append(Object.assign(document.createElement('span'), { className: 'msg', textContent: text }));
+  if (action) {
+    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: action.label });
+    b.onclick = () => { say(''); action.run(); };
+    n.append(b);
+    // If the action took keyboard focus with it (the row is gone), put focus on the button.
+    setTimeout(() => { if (b.isConnected && (document.activeElement === document.body || !document.activeElement?.isConnected)) b.focus(); }, 400);
+  }
+  const close = Object.assign(document.createElement('button'), { type: 'button', className: 'close', textContent: '\u00d7' });
+  close.setAttribute('aria-label', 'Dismiss');
+  close.onclick = () => say('');
+  n.append(close);
+  if (kind !== 'err' && !action && !sticky) noticeTimer = setTimeout(() => say(''), 4500);
 }
 
 const SITE_WORDS = { x: 'x twitter', reddit: 'reddit', facebook: 'facebook fb', web: 'web other' };
@@ -25,29 +41,33 @@ function matches(e, terms) {
   return terms.every((t) => hay.includes(t));
 }
 
+const EMPTY_ALL = `<div class="empty">No videos yet. Three ways to save one:
+  <ul><li>Point at a video on X, Reddit or Facebook and press <b>Save</b>.</li>
+  <li>Right-click a video or a post link and choose the ClipSnatcher item.</li>
+  <li>Click the toolbar icon and paste a post link.</li></ul></div>`;
+const EMPTY_FILTERED = '<div class="empty">Nothing matches that search or filter.</div>';
+
 async function render() {
   const mine = ++renderNo;
+  await platformReady;
   const terms = $('q').value.toLowerCase().split(/\s+/).filter(Boolean);
   const filtered = all.filter((e) => matches(e, terms));
   const rows = filtered.slice(0, limit);
-  const state = await liveState(rows);
+  const [state, progress] = await Promise.all([liveState(rows), mergeProgress()]);
   if (mine !== renderNo) return;          // a newer render is on its way; don't paint stale data
   shown = rows; live = state;
-  $('count').textContent = all.length
-    ? `${filtered.length} of ${all.length} video${all.length === 1 ? '' : 's'}`
-    : '';
-  $('list').innerHTML = shown.length
-    ? shown.map((e) => rowHTML(e, live)).join('')
-    : `<div class="empty">${all.length ? 'No matches.' : 'No videos yet. Hover a video on X, Reddit or Facebook and press Save.'}</div>`;
-  applyThumbs($('list'), shown);
-  watchProgress();
+  announceMergeOutcomes(seenStates, shown, live, say);
+  $('count').textContent = all.length ? `${filtered.length} of ${all.length} video${all.length === 1 ? '' : 's'}` : '';
+  $('clearFilters').hidden = !(all.length && (terms.length || site));
+  renderList($('list'), shown, live, { progress, emptyHTML: all.length ? EMPTY_FILTERED : EMPTY_ALL });
   $('more').hidden = filtered.length <= limit;
+  $('cleanup').hidden = all.length === 0;
+  watchProgress();
 }
 
-let progressTimer = 0;
 function watchProgress() {
   clearTimeout(progressTimer);
-  if (![...live.values()].some((it) => it.state === 'in_progress')) return;
+  if (!needsTicking(shown, live)) return;
   progressTimer = setTimeout(async () => {
     const mine = renderNo;
     const state = await tickProgress($('list'), shown, live);
@@ -55,25 +75,53 @@ function watchProgress() {
     if (state === 'changed') render(); else if (state === 'active') watchProgress();
   }, 1000);
 }
+
 async function load() { all = await getHistory(); render(); }
 
 let debounce;
 $('q').addEventListener('input', () => { clearTimeout(debounce); limit = PAGE; debounce = setTimeout(render, 80); });
+function pickSite(next) {
+  site = next; limit = PAGE;
+  for (const b of $('chips').children) b.setAttribute('aria-pressed', String(b.dataset.site === next));
+}
 $('chips').addEventListener('click', (e) => {
   const c = e.target.closest('.chip'); if (!c) return;
-  site = c.dataset.site; limit = PAGE;
-  for (const b of $('chips').children) b.setAttribute('aria-pressed', String(b === c));
+  pickSite(c.dataset.site);
   render();
 });
+$('clearFilters').onclick = () => { $('q').value = ''; pickSite(''); render(); $('q').focus(); };
 $('more').onclick = () => { limit += PAGE; render(); };
-$('list').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-act]');
-  if (!b) return;
-  const entry = shown.find((x) => x.id === b.dataset.id);
-  if (entry) runAction(b.dataset.act, entry, say, live.get(entry.id));
-});
 
-chrome.storage.onChanged.addListener((c) => { if (c.history) load(); });
+// Finds entries whose file is gone and offers to remove them (with Undo).
+$('cleanup').onclick = async () => {
+  $('cleanup').disabled = true;
+  say('Checking which files are still there. This takes about 10 seconds…', '', null, { sticky: true });
+  let r;
+  try { r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:findMissing' }); } catch { r = null; }
+  $('cleanup').disabled = false;
+  const ids = r?.ids || [];
+  if (!r?.ok) return say('Couldn’t check the files. Try again.', 'err');
+  if (!ids.length) return say('Nothing to tidy: every file Chrome knows about is still there.', 'ok');
+  const gone = all.filter((e) => ids.includes(e.id));
+  say(`${ids.length} ${ids.length === 1 ? 'entry points' : 'entries point'} at a file that was moved or deleted.`, '', {
+    label: `Remove ${ids.length === 1 ? 'it' : 'them'}`,
+    run: async () => {
+      await chrome.runtime.sendMessage({ type: 'clipsnatcher:remove', ids });
+      say(`Removed ${ids.length} ${ids.length === 1 ? 'entry' : 'entries'} from history.`, 'ok', {
+        label: 'Undo',
+        run: async () => {
+          const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:restore', entries: gone });
+          const n = r?.restored || 0;
+          say(n === gone.length ? `Put back ${n === 1 ? 'the entry' : `all ${n} entries`}.` : `Put back ${n} of ${gone.length} entries.`, n === gone.length ? 'ok' : 'err');
+        },
+      });
+    },
+  });
+};
+
+wireList($('list'), (id) => { const entry = shown.find((x) => x.id === id); return { entry, live: entry && live.get(entry.id) }; }, say);
+
+chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && c.history) load(); });
 let dlTimer;
-chrome.downloads.onChanged.addListener(() => { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); });
+chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.filename) { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); } });
 load();

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to ClipSnatcher</title>
+<link rel="icon" href="icons/32.png">
+<link rel="stylesheet" href="ui.css">
+<style>
+  .wrap { max-width: 700px; margin: 0 auto; padding: 40px 16px 72px; }
+  .brand { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; margin-bottom: 6px; }
+  .brand img { width: 36px; height: 36px; }
+  .lede { color: var(--muted); font-size: 15px; margin: 0 0 24px; }
+  ol.ways { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 10px; }
+  ol.ways li { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+  ol.ways .n { grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font-weight: 700; }
+  ol.ways h2 { font-size: 15px; }
+  ol.ways p { margin: 0; color: var(--muted); }
+  .tips { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
+  .tips h2 { font-size: 15px; margin-bottom: 8px; }
+  .tips ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+  .go { display: flex; gap: 8px; flex-wrap: wrap; }
+  kbd { font: inherit; font-size: 12.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--bg-soft); }
+</style>
+</head>
+<body class="page">
+<div class="wrap">
+  <h1 class="brand"><img src="icons/128.png" alt="">ClipSnatcher is ready</h1>
+  <p class="lede">Three ways to save a video from X, Reddit or Facebook.</p>
+  <ol class="ways">
+    <li><span class="n">1</span><h2>Point and save</h2><p>Move the pointer over a video. A <b>Save</b> button appears in its top-right corner.</p></li>
+    <li><span class="n">2</span><h2>Right-click</h2><p>Right-click a video or a link to a post and choose the ClipSnatcher item.</p></li>
+    <li><span class="n">3</span><h2>Paste a link</h2><p>Click the ClipSnatcher icon in the toolbar (or press <kbd id="shortcut">Alt+Shift+V</kbd>), paste a post link and press Save.</p></li>
+  </ol>
+  <div class="tips">
+    <h2>Good to know</h2>
+    <ul>
+      <li><b>Reload tabs that were already open.</b> The Save button only appears on X, Reddit and Facebook tabs opened or reloaded after installing.</li>
+      <li><b>Pin the icon.</b> Click the puzzle piece in Chrome's toolbar, then the pin next to ClipSnatcher.</li>
+      <li><b>Videos land in <span id="where">Downloads/ClipSnatcher</span>,</b> sorted by site and named after the post. Everything you save is listed in History, where you can search by title.</li>
+      <li><b>If a feed video can't be matched to its post,</b> ClipSnatcher asks you to open the post first rather than guess.</li>
+      <li><b>Nothing leaves your computer.</b> No accounts, no tracking, no servers.</li>
+    </ul>
+  </div>
+  <div class="go"><a class="btn primary" href="history.html">Open history</a><a class="btn" href="options.html">Settings</a></div>
+</div>
+<script type="module" src="welcome.js"></script>
+</body>
+</html>

@@ -77,6 +77,20 @@ Changed from the plan as written: the tab permission (`activeTab`) stays, becaus
 
 ## Milestone 2: feels right
 
+**Status: all 9 implemented in version 1.2.0.**
+
+An independent review of the changes (10 sweeps, the last three clean) found no high-severity issues, confirmed that web pages cannot reach the new handlers and that all site text is escaped, and found 11 problems (3 medium, 8 low). All 11 are fixed, along with five of its uncertain items. Those fixes are tested but have not themselves been reviewed.
+
+Tests on the final code: 89 link-lookup checks against mock pages and 63 checks in real Chrome (44 for downloads, rows, menu, focus, undo, tidy-up, delete and cancelling a merge; 19 page-side), plus a look at every page in light and dark and at phone width.
+
+Not verified: Reddit and Facebook on the live sites; the copy helper's permission prompt; starting a second save while one is running on a real page with several videos; whether a feed video hidden under a site's own overlay still offers a right-click item (the Save button is the way to save those).
+
+Changed from the plan as written:
+- The Save button is not added to tabs that were already open at install. That would need another permission; the welcome page asks you to reload those tabs instead.
+- "Save this post's video" in the right-click menu is now offered only on a post's own page, not everywhere on the three sites.
+- A Reddit save now replies at once and merges in the background, with the row showing "Merging". If the merge fails or the sound can't be added, that is reported by a notice and on the row.
+- "Tidy up" takes about 10 seconds, because Chrome re-checks files on disk at most that often.
+
 17. **Live progress.** Update the percentage every second while a row is downloading, and show merge progress for Reddit.
 18. **Simpler rows.** Clicking the thumbnail plays the video. Show Play and Show in folder as the main buttons with a labelled More menu. Offer Download again when a file failed or is missing, and disable actions while downloading. Apply the same to the popup.
 19. **A better Save button.** Keep the spinner on its own video, let a second save start meanwhile, keep error messages visible long enough to read, show the saved title, and give instant feedback after a right-click save.

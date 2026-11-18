@@ -40,8 +40,19 @@
   });
 
   /* ------------------------------------------------------------ the button */
-  let hostEl, btn, tip, current = null, hideTimer = 0, resultTimer = 0, busy = false;
-  let state = 'idle';        // idle | busy | ok | err
+  let hostEl, btn, tip, current = null, hideTimer = 0, resultTimer = 0;
+  // What each video's button is showing. Every video keeps its own state, so one save
+  // can be running while you start another.
+  const jobs = new WeakMap();   // video container -> { state: 'busy' | 'ok' | 'err', text, until }
+  // Some pages reuse one <video> element for the next clip. A job belongs to the clip
+  // that was playing when Save was pressed, so it is dropped once the element shows another.
+  const clipOf = (container) => (container?.tagName === 'VIDEO' ? container : container?.querySelector?.('video'))?.currentSrc || '';
+  function jobOf(container) {
+    const job = container && jobs.get(container);
+    if (!job) return null;
+    if ((job.until && job.until < Date.now()) || (job.state !== 'busy' && job.clip !== clipOf(container))) { jobs.delete(container); return null; }
+    return job;
+  }
 
   function build() {
     hostEl = document.createElement('clipsnatcher-ui');
@@ -70,7 +81,7 @@
       <div class="tip" role="status"></div>`;
     btn = root.querySelector('button');
     tip = root.querySelector('.tip');
-    setLabel('idle');
+    draw('idle');
     btn.addEventListener('click', onClick, true);
     for (const ev of ['mousedown', 'pointerdown', 'mouseup', 'pointerup']) btn.addEventListener(ev, (e) => e.stopPropagation(), true);
     hostEl.addEventListener('mouseenter', () => clearTimeout(hideTimer));
@@ -86,51 +97,59 @@
   };
   const LABELS = { idle: 'Save', busy: 'Finding…', ok: 'Downloading', err: 'Failed' };
 
-  function setLabel(next, text) {
-    state = next;
-    btn.className = next === 'ok' || next === 'err' ? next : '';
-    btn.innerHTML = ICONS[next];
+  let drawn = '';
+  function draw(state, text) {
+    // Called on every pointer check; only touch the button when something changed, so
+    // the spinner isn't restarted and the tip isn't announced again.
+    const key = state + '|' + (text || '');
+    if (key === drawn) return;
+    drawn = key;
+    btn.className = state === 'ok' || state === 'err' ? state : '';
+    btn.innerHTML = ICONS[state];
     const span = document.createElement('span');
-    span.textContent = LABELS[next];
+    span.textContent = LABELS[state];
     btn.appendChild(span);
     tip.textContent = text || '';
     tip.style.display = text ? 'block' : 'none';
   }
 
+  // Shows the state of the video the button is on, and clears a result when its time is up.
+  function paint() {
+    const job = jobOf(current);
+    draw(job ? job.state : 'idle', job && job.state !== 'busy' ? job.text : '');
+    clearTimeout(resultTimer);
+    if (job?.until) resultTimer = setTimeout(() => { if (!jobOf(current)) hide(); else paint(); }, Math.max(0, job.until - Date.now()) + 30);
+  }
+  const showingResult = () => { const job = jobOf(current); return !!job && job.state !== 'busy'; };
+
   function place() {
-    if (!current || !current.isConnected) return busy ? conceal() : hide();
+    if (!current || !current.isConnected) return hide();
     const r = current.getBoundingClientRect();
-    // While a save is running the button keeps its video but isn't drawn off-screen.
-    if (r.width < MIN_W || r.height < MIN_H || r.bottom < 0 || r.top > innerHeight) return busy ? conceal() : hide();
+    if (r.width < MIN_W || r.height < MIN_H || r.bottom < 0 || r.top > innerHeight) return hide();
     const top = Math.max(8, r.top + 10);
     const right = Math.min(innerWidth - 8, r.right - 10);
     hostEl.style.transform = `translate(${Math.round(right)}px, ${Math.round(top)}px) translateX(-100%)`;
     hostEl.style.display = 'block';
   }
 
-  const conceal = () => { if (hostEl) hostEl.style.display = 'none'; };
-
   function show(container) {
     if (enabled === false) return;
-    if (enabled === null) { askEnabled().then(() => { if (enabled && videoStillThere(container)) show(container); }); return; }
+    if (enabled === null) { askEnabled().then(() => { if (enabled && container?.isConnected) show(container); }); return; }
     if (!hostEl) build();
     clearTimeout(hideTimer);
-    if (busy) return;   // the spinner stays on the video it belongs to
-    // Moving to a different video ends whatever result was showing for the last one.
-    if (container !== current) { clearTimeout(resultTimer); setLabel('idle'); }
     current = container;
+    paint();
     place();
   }
-  const videoStillThere = (c) => c?.isConnected;
 
+  // Hiding the button never cancels a save: its result arrives as a notice instead.
   function hide() {
-    if (busy) return;
     current = null;
-    if (hostEl) { hostEl.style.display = 'none'; if (state !== 'idle') { clearTimeout(resultTimer); setLabel('idle'); } }
+    clearTimeout(resultTimer);
+    if (hostEl) hostEl.style.display = 'none';
   }
   function scheduleHide() {
-    // A result (success or error) stays up for its own timer so it can be read.
-    if (state === 'ok' || state === 'err') return;
+    if (showingResult()) return;     // a result stays up for its own timer so it can be read
     clearTimeout(hideTimer);
     hideTimer = setTimeout(hide, HIDE_DELAY_MS);
   }
@@ -222,31 +241,24 @@
     e.preventDefault();
     e.stopPropagation();
     if (!e.isTrusted) return;            // only a real click by the user counts
-    if (busy || !current || state === 'ok') return;
-    busy = true;
-    clearTimeout(resultTimer);
-    setLabel('busy');
-    const hint = gather(current);
+    const video = current;
+    const job = jobOf(video);
+    if (!video || job?.state === 'busy' || job?.state === 'ok') return;
+    const clip = clipOf(video);
+    jobs.set(video, { state: 'busy', clip });
+    paint();
+    const hint = gather(video);
     let res;
     try {
       res = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint });
     } catch {
       res = { ok: false, error: 'ClipSnatcher was updated or reloaded. Refresh this page and try again.' };
     }
-    busy = false;
-    showResult(res);
-  }
-
-  function showResult(res) {
-    if (!hostEl) build();
-    clearTimeout(hideTimer);
-    clearTimeout(resultTimer);
-    const text = res?.ok ? `Download started: ${res.title || 'video'}${res.warning ? `. ${res.warning}` : ''}` : (res?.error || 'Something went wrong.');
-    setLabel(res?.ok ? 'ok' : 'err', text);
-    place();
-    // If the video has scrolled out of view, its button is hidden: use a notice instead.
-    if (!hostEl || hostEl.style.display === 'none') { setLabel('idle'); current = null; toast(text, !!res?.ok); return; }
-    resultTimer = setTimeout(() => { setLabel('idle'); hide(); }, res?.ok ? RESULT_OK_MS : RESULT_ERR_MS);
+    const ok = !!res?.ok;
+    const text = ok ? `Download started: ${res.title || 'video'}${res.warning ? `. ${res.warning}` : ''}` : (res?.error || 'Something went wrong.');
+    jobs.set(video, { state: ok ? 'ok' : 'err', text, clip, until: Date.now() + (ok ? RESULT_OK_MS : RESULT_ERR_MS) });
+    // If the pointer has moved on (or the video scrolled away), say it in a notice instead.
+    if (current === video && hostEl.style.display !== 'none') { clearTimeout(hideTimer); paint(); } else toast(text, ok ? 'ok' : 'err');
   }
 
   /* -------------------------------------------- right-click menu support */
@@ -266,14 +278,18 @@
     }
     if (msg?.type === 'clipsnatcher:toast') {
       const r = msg.result;
-      toast(r?.ok ? `Download started: ${r.title || 'video'}${r.warning ? `. ${r.warning}` : ''}` : (r?.error || 'Download failed.'), !!r?.ok);
+      pendingNotice?.remove();
+      pendingNotice = null;
+      if (r?.pending) { pendingNotice = toast('Finding the video\u2026', 'info'); return; }
+      toast(r?.ok ? `Download started: ${r.title || 'video'}${r.warning ? `. ${r.warning}` : ''}` : (r?.error || 'Download failed.'), r?.ok ? 'ok' : 'err');
     }
   });
 
   // Notices live in a closed shadow root so the page's own scripts can't read them
   // (they can contain the title of a post from a different site).
-  let toastStack = null;
-  function toast(text, ok) {
+  let toastStack = null, pendingNotice = null;
+  const NOTICE_MS = { ok: 3500, info: 15000, err: 8000 };
+  function toast(text, kind) {
     if (!toastStack) {
       const el = document.createElement('clipsnatcher-notice');
       el.style.cssText = 'all:initial;position:fixed;z-index:2147483647;right:16px;bottom:16px;';
@@ -282,16 +298,17 @@
         .stack { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
         .t { max-width: 340px; padding: 10px 14px; border-radius: 10px; color: #fff;
           font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
-        .ok { background: #1a7f37; } .err { background: #b3202c; }
+        .ok { background: #1a7f37; } .err { background: #b3202c; } .info { background: #2b2b33; }
       </style><div class="stack"></div>`;
       toastStack = root.querySelector('.stack');
       document.documentElement.appendChild(el);
     }
     const t = document.createElement('div');
-    t.className = 't ' + (ok ? 'ok' : 'err');
+    t.className = 't ' + kind;
     t.setAttribute('role', 'status');
     t.textContent = text;
     toastStack.appendChild(t);
-    setTimeout(() => t.remove(), ok ? 3500 : 8000);
+    setTimeout(() => t.remove(), NOTICE_MS[kind] || 5000);
+    return t;
   }
 })();

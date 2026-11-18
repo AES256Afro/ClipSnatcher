@@ -31,7 +31,7 @@ THREE WAYS TO SAVE
 • Open the extension and paste a post link
 
 SEARCHABLE HISTORY
-Every saved video is listed with its post title, author, site and date. Search by title, author or link. From each entry you can play the file, show it in its folder, open the original post, copy the link, or download it again.
+Every saved video is listed with its post title, author, site and date. Search by title, author or link. Click a thumbnail to play the video, or show it in its folder, open the original post, copy the link, download it again, or remove it with Undo. Rows show live download progress and say plainly when something failed.
 
 ORGANIZED DOWNLOADS
 Videos are saved to a ClipSnatcher folder inside your Downloads folder, sorted by site, and named after the post.

@@ -5,7 +5,7 @@
 <title>ClipSnatcher</title>
 <link rel="stylesheet" href="ui.css">
 <style>
-  body { width: 380px; }
+  body { width: 390px; }
   header { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px; }
   .brand { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; }
   .brand img { width: 20px; height: 20px; }
@@ -16,17 +16,20 @@
   .section { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 12px 4px; border-top: 1px solid var(--line); margin-top: 10px; }
   .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
   #recent { padding: 0 4px 8px; }
-  .row { grid-template-columns: 52px 1fr auto; }
+  .row { grid-template-columns: 52px minmax(0, 1fr) auto; }
   .thumb { width: 52px; height: 36px; }
   .title { -webkit-line-clamp: 1; }
+  .sub { flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
+  .sub > span { flex: none; }
+  .sub .author { flex: 0 1 auto; min-width: 3ch; max-width: none; }
 </style>
 </head>
 <body>
   <header>
-    <div class="brand"><img src="icons/32.png" alt="">ClipSnatcher</div>
+    <h1 class="brand"><img src="icons/32.png" alt="">ClipSnatcher</h1>
     <div class="head-actions">
-      <button class="btn icon" id="openHistory" title="History"></button>
-      <button class="btn icon" id="openSettings" title="Settings"></button>
+      <button class="btn icon" id="openHistory" title="History" aria-label="Open history"></button>
+      <button class="btn icon" id="openSettings" title="Settings" aria-label="Open settings"></button>
     </div>
   </header>
   <form id="form">
@@ -35,8 +38,8 @@
   </form>
   <div class="status" id="status" role="status"></div>
   <div class="confirm" id="confirm" hidden><button class="btn small" id="confirmYes" type="button"></button><button class="btn small" id="confirmNo" type="button">Cancel</button></div>
-  <div class="section"><h2>Recent</h2><a href="#" id="all">See all</a></div>
-  <div id="recent"></div>
+  <div class="section"><h2>Recent</h2><a href="#" id="all" hidden>See all</a></div>
+  <div id="recent" role="list"></div>
   <script type="module" src="popup.js"></script>
 </body>
 </html>

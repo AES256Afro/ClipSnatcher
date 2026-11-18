@@ -31,6 +31,8 @@ Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome 
 | `extension/lib/resolve.js` | Finds the video file for X, Reddit and Facebook links |
 | `extension/lib/mux.js` | Joins Reddit's separate video and audio into one MP4 without re-encoding |
 | `extension/lib/store.js` | Settings and history, kept in `chrome.storage.local` |
+| `extension/lib/names.js` | File and folder naming, shared by saving and the Settings preview |
+| `extension/lib/ui.js` | History rows, the More menu and row actions, shared by the popup and history page |
 | `native-helper/` | Optional macOS clipboard helper and its install/uninstall scripts |
 
 ## Three ways to save a video
@@ -47,15 +49,18 @@ Chrome extensions can only save inside Chrome's download location. To put everyt
 
 ## History
 
-Click the clock icon in the popup. You can search by post title, author or link, and filter by site. Each entry has these buttons:
+Click the clock icon in the popup. You can search by post title, author, site or link, and filter by site.
 
-- **Copy:** puts the video file on your clipboard, so ⌘V in Discord attaches the video. This needs the helper. Without it, the file is shown in Finder, where ⌘C and then ⌘V does the same thing.
-- **Play**
-- **Show in folder**
-- **Open original post**
-- **Copy post link**
-- **Download again**
-- **Remove from history:** removes the entry only. The file stays where it is.
+Each row shows what you can do with that video right now:
+
+- **Finished:** click the thumbnail (or **Play**) to play it, **Show in folder** to find the file, and **Copy** to put the video file on your clipboard so ⌘V in Discord attaches it. Copy needs the helper; without it, the file is shown in Finder, where ⌘C and then ⌘V does the same thing.
+- **Still downloading, or a Reddit video being merged:** the row shows the percentage.
+- **Failed, or the file was moved or deleted:** **Download again**, with the reason shown.
+- **Finished, but Chrome's own download list was cleared:** **Copy path**, since Chrome can no longer open the file itself.
+
+The **More** menu (the three dots) has the rest: open the original post, copy the post link, copy the file path, download again, remove the entry (with **Undo**), and delete the file.
+
+**Tidy up** at the top of the page finds entries whose file has been moved or deleted and offers to remove them. Chrome only re-checks files every 10 seconds, so this takes about that long.
 
 ## How each site works
 

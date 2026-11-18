@@ -7,66 +7,75 @@
 <link rel="icon" href="icons/32.png">
 <link rel="stylesheet" href="ui.css">
 <style>
-  .wrap { max-width: 680px; margin: 0 auto; padding: 24px 16px 48px; }
-  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .wrap { max-width: 700px; margin: 0 auto; padding: 24px 16px 72px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 12px; }
   .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
   .brand img { width: 26px; height: 26px; }
+  .head-actions { display: flex; gap: 8px; }
   section { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-  section h2 { font-size: 14px; margin-bottom: 10px; }
-  label.field { display: block; margin-bottom: 12px; }
-  label.field span { display: block; font-weight: 600; margin-bottom: 4px; }
+  section h2 { font-size: 15px; margin-bottom: 10px; }
+  section p { margin: 0 0 10px; }
+  label.field { display: block; margin-bottom: 10px; }
+  label.field > span { display: block; font-weight: 600; margin-bottom: 4px; }
   .check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; }
   .check input { margin-top: 3px; }
-  .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg-soft); padding: 2px 6px; border-radius: 5px; word-break: break-all; }
-  pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg-soft); padding: 10px 12px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--bg-soft); padding: 2px 6px; border-radius: 5px; word-break: break-all; }
+  pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--bg-soft); padding: 10px 12px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0 0 10px; }
   .pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.on { background: var(--ok); } .dot.off { background: var(--err); }
-  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
-  ul { margin: 6px 0 0; padding-left: 18px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  kbd { font: inherit; font-size: 12.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--bg-soft); }
 </style>
 </head>
-<body>
+<body class="page">
 <div class="wrap">
   <header>
-    <div class="brand"><img src="icons/48.png" alt="">ClipSnatcher settings</div>
-    <a class="btn" href="history.html">History</a>
+    <h1 class="brand"><img src="icons/48.png" alt="">ClipSnatcher settings</h1>
+    <div class="head-actions"><a class="btn" href="welcome.html">How to use</a><a class="btn" href="history.html" id="historyLink"></a></div>
   </header>
 
   <section>
     <h2>Where videos go</h2>
     <label class="field"><span>Folder inside your Downloads folder</span>
       <input type="text" id="folder" placeholder="(empty: save straight into Downloads)"></label>
-    <p class="note">Files save to <span class="path" id="preview"></span>. Chrome extensions can only save inside Chrome's download location; to put the whole thing elsewhere, change "Location" in Chrome Settings &rarr; Downloads. Turn off "Ask where to save each file" there, or Chrome will ask every time.</p>
+    <p class="note">A video is saved as <span class="path" id="preview"></span><span id="previewNote"></span></p>
     <div class="check"><input type="checkbox" id="perSite"><label for="perSite">Separate subfolder per site (X, Reddit, Facebook)</label></div>
-    <div class="check"><input type="checkbox" id="authorInName"><label for="authorInName">Start file names with the author's handle when known</label></div>
+    <div class="check"><input type="checkbox" id="authorInName"><label for="authorInName">Start file names with the author or subreddit when known</label></div>
+    <div class="buttons"><button class="btn" id="showFolder" type="button">Open the Downloads folder</button><button class="btn" id="chromeDownloads" type="button">Chrome's download settings</button></div>
+    <p class="note">Chrome extensions can only save inside Chrome's download location. To put everything somewhere else, change "Location" in Chrome's download settings. Turn off "Ask where to save each file before downloading" there, or Chrome will ask every time.</p>
   </section>
 
   <section>
     <h2>On the page</h2>
-    <div class="check"><input type="checkbox" id="hoverButton"><label for="hoverButton">Show a <b>Save</b> button when hovering over a video on X, Reddit and Facebook<br><span class="note">It only does work while your pointer is over a video, so feeds stay fast. Right-click &rarr; "Save video" works either way.</span></label></div>
+    <div class="check"><input type="checkbox" id="hoverButton"><label for="hoverButton">Show a <b>Save</b> button when pointing at a video on X, Reddit and Facebook<br><span class="note">It keeps no watch on the page and makes no requests; it only checks what is under the pointer as you move it. Right-click &rarr; "Save video" works either way.</span></label></div>
+    <p class="note">Keyboard: <kbd id="shortcut">Alt+Shift+V</kbd> opens ClipSnatcher. <a href="#" id="shortcuts">Change the shortcut</a></p>
   </section>
 
-  <section>
+  <section id="helperSection">
     <h2>Copy helper (paste videos into Discord)</h2>
-    <p>Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. It can also show that file in Finder. It accepts video files only. Then &#8984;V in Discord attaches the video.</p>
-    <p><span class="pill"><span class="dot" id="helperDot"></span><span id="helperText">Checking&hellip;</span></span></p>
-    <p>To install, run this once in Terminal (no admin password needed), then click <b>Check again</b>. The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
-    <pre id="installCmd"></pre>
-    <div class="buttons"><button class="btn" id="copyCmd">Copy command</button><button class="btn primary" id="enableHelper" hidden>Switch on the copy helper</button><button class="btn" id="recheck">Check again</button></div>
-    <p class="note">Switching it on asks Chrome for permission to talk to the helper. ClipSnatcher only asks for this if you use the helper.</p>
-    <p class="note">Without the helper, the Copy button shows the file in Finder instead, where &#8984;C then &#8984;V in Discord does the same thing.</p>
+    <div id="helperMac">
+      <p>Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. It can also show that file in Finder. It accepts video files only.</p>
+      <p><span class="pill"><span class="dot" id="helperDot"></span><span id="helperText">Checking&hellip;</span></span></p>
+      <p>To install, <a href="https://github.com/AES256Afro/ClipSnatcher#install-about-1-minute" target="_blank" rel="noopener">get the project from GitHub</a>, then run this once in Terminal (no admin password needed). The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
+      <pre id="installCmd"></pre>
+      <div class="buttons"><button class="btn" id="copyCmd" type="button">Copy command</button><button class="btn primary" id="enableHelper" type="button" hidden>Switch on the copy helper</button><button class="btn" id="recheck" type="button">Check again</button></div>
+      <p class="note">Switching it on asks Chrome for permission to talk to the helper. ClipSnatcher only asks for this if you use the helper. Without it, the Copy button shows the file in Finder instead, where &#8984;C then &#8984;V in Discord does the same thing.</p>
+    </div>
+    <div id="helperOther" hidden>
+      <p>The one-click copy helper is available on macOS only. On this computer, use <b>Show in folder</b> on a saved video, copy the file there, and paste it into Discord.</p>
+    </div>
   </section>
 
   <section>
     <h2>Your data</h2>
     <p>ClipSnatcher has no servers and no analytics. History (titles, links, the video's address, file locations, small thumbnails) is stored only in this browser profile. Network requests go to the site hosting the post you chose, to fetch that video and its thumbnail. If a video is hosted somewhere else, you are asked before anything is downloaded from that host.</p>
     <p class="note" id="stats"></p>
-    <div class="buttons"><button class="btn" id="export">Export history (JSON)</button><button class="btn" id="clear">Clear history</button></div>
+    <div class="buttons"><button class="btn" id="export" type="button">Export history (JSON)</button><button class="btn" id="clear" type="button">Clear history</button></div>
     <p class="note">Clearing history doesn't delete any video files.</p>
   </section>
-  <div class="status" id="status" role="status"></div>
 </div>
+<div class="notice" id="notice" role="status" hidden></div>
 <script type="module" src="options.js"></script>
 </body>
 </html>

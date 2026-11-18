@@ -1,19 +1,40 @@
-import { ICON, rowHTML, applyThumbs, getHistory, liveState, runAction, tickProgress } from './lib/ui.js';
+import { ICON, getHistory, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
 
 const $ = (id) => document.getElementById(id);
 $('openHistory').innerHTML = ICON.history;
 $('openSettings').innerHTML = ICON.gear;
 $('go').innerHTML = ICON.down + 'Save';
 
-const openPage = (p) => { chrome.tabs.create({ url: chrome.runtime.getURL(p) }); window.close(); };
-$('openHistory').onclick = () => openPage('history.html');
-$('all').onclick = (e) => { e.preventDefault(); openPage('history.html'); };
+// Reuse an open history tab instead of piling up new ones. (Asking for the extension's
+// own open pages needs no extra permission.)
+async function openHistory() {
+  const url = chrome.runtime.getURL('history.html');
+  const [open] = await chrome.runtime.getContexts({ contextTypes: ['TAB'], documentUrls: [url] }).catch(() => []);
+  if (open && open.tabId >= 0) {
+    await chrome.tabs.update(open.tabId, { active: true }).catch(() => {});
+    if (open.windowId >= 0) await chrome.windows.update(open.windowId, { focused: true }).catch(() => {});
+  } else {
+    await chrome.tabs.create({ url });
+  }
+  window.close();
+}
+$('openHistory').onclick = openHistory;
+$('all').onclick = (e) => { e.preventDefault(); openHistory(); };
 $('openSettings').onclick = () => chrome.runtime.openOptionsPage();
 
-function say(text, kind = '') {
+// Shows a message, optionally with one button ({ label, run }).
+function say(text, kind = '', action = null) {
   const s = $('status');
-  s.textContent = text || '';
   s.className = 'status ' + kind;
+  s.replaceChildren();
+  if (!text) return;
+  const msg = Object.assign(document.createElement('span'), { className: 'msg', textContent: text });
+  s.append(msg);
+  if (action) {
+    const b = Object.assign(document.createElement('button'), { className: 'btn small', type: 'button', textContent: action.label });
+    b.onclick = () => { say(''); action.run(); };
+    s.append(b);
+  }
 }
 
 // If the current tab is a post, pre-fill it so it's one click. (The tab's address is
@@ -47,14 +68,14 @@ async function save(url, allowHost = '') {
   let r;
   try {
     r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', url, allowHost });
-  } catch (e) {
+  } catch {
     r = { ok: false, error: 'ClipSnatcher didn’t respond. Close this popup and try again.' };
   } finally {
     $('go').disabled = false;
   }
   if (r?.ok) {
-    const title = r.title.length > 70 ? r.title.slice(0, 70) + '…' : r.title;
-    say(`Download started: ${title}${r.warning ? `. ${r.warning}` : ''}`, r.warning ? '' : 'ok');
+    const what = r.count > 1 ? `${r.count} videos from: ${r.title}` : r.title;
+    say(`Download started: ${what}${r.warning ? `. ${r.warning}` : ''}`, r.warning ? '' : 'ok');
     $('url').value = '';
   } else if (r?.needsConfirm) {
     say(r.error);
@@ -71,23 +92,26 @@ $('form').addEventListener('submit', (e) => {
   save(url);
 });
 
-let entries = [], live = new Map(), renderNo = 0;
+const EMPTY = '<div class="empty">Nothing saved yet. Point at a video on X, Reddit or Facebook and press <b>Save</b>, or paste a post link above.</div>';
+let entries = [], live = new Map(), renderNo = 0, progressTimer = 0;
+const seenStates = new Map();   // entry id -> state at the last render
 async function render() {
   const mine = ++renderNo;
-  const list = (await getHistory()).slice(0, 6);
-  const state = await liveState(list);
+  await platformReady;
+  const all = await getHistory();
+  const list = all.slice(0, 6);
+  const [state, progress] = await Promise.all([liveState(list), mergeProgress()]);
   if (mine !== renderNo) return;          // a newer render is on its way; don't paint stale data
   entries = list; live = state;
-  $('recent').innerHTML = entries.length
-    ? entries.map((e) => rowHTML(e, live, { compact: true })).join('')
-    : '<div class="empty">Nothing saved yet. Hover a video on X, Reddit or Facebook and press <b>Save</b>, or paste a link above.</div>';
-  applyThumbs($('recent'), entries);
+  announceMergeOutcomes(seenStates, entries, live, say);
+  renderList($('recent'), entries, live, { compact: true, progress, emptyHTML: EMPTY });
+  $('all').hidden = all.length === 0;
+  $('all').textContent = all.length > list.length ? `See all ${all.length}` : 'Open history';
   watchProgress();
 }
-let progressTimer = 0;
 function watchProgress() {
   clearTimeout(progressTimer);
-  if (![...live.values()].some((it) => it.state === 'in_progress')) return;
+  if (!needsTicking(entries, live)) return;
   progressTimer = setTimeout(async () => {
     const mine = renderNo;
     const state = await tickProgress($('recent'), entries, live);
@@ -96,12 +120,7 @@ function watchProgress() {
   }, 1000);
 }
 render();
-chrome.storage.onChanged.addListener((c) => { if (c.history) render(); });
-chrome.downloads.onChanged.addListener(() => render());
+chrome.storage.onChanged.addListener((c, area) => { if (area === 'local' && c.history) render(); });
+chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.filename) render(); });
 
-$('recent').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-act]');
-  if (!b) return;
-  const entry = entries.find((x) => x.id === b.dataset.id);
-  if (entry) runAction(b.dataset.act, entry, say, live.get(entry.id));
-});
+wireList($('recent'), (id) => { const entry = entries.find((x) => x.id === id); return { entry, live: entry && live.get(entry.id) }; }, say);

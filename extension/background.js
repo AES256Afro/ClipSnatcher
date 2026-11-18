@@ -1,23 +1,32 @@
 // ClipSnatcher background worker. No analytics, no remote servers: it only talks to the
 // site that hosts the post you asked for, and to Chrome's own downloads system.
-import { resolve, detectSite, canonicalUrl, shortHash, ResolveError, hostOf, isHttp, isPlaylist, isSiteMediaUrl, SITE_LABEL } from './lib/resolve.js';
-import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, clearHistory, isEntryDownload, failureReason } from './lib/store.js';
+import { resolve, detectSite, canonicalUrl, ResolveError, hostOf, isHttp, isPlaylist, isSiteMediaUrl, SITE_LABEL } from './lib/resolve.js';
+import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason } from './lib/store.js';
+import { buildFilename } from './lib/names.js';
 
 const HELPER = 'com.clipsnatcher.helper';
 const ME = chrome.runtime.id;
 const EXT_ORIGIN = chrome.runtime.getURL('').replace(/\/$/, '');
-const FOLDER_NAMES = { ...SITE_LABEL, web: 'Web' };
 const POST_PATTERNS = [
   '*://x.com/*/status/*', '*://twitter.com/*/status/*', '*://mobile.twitter.com/*/status/*',
   '*://*.reddit.com/*/comments/*', '*://redd.it/*', '*://v.redd.it/*', '*://*.reddit.com/r/*/s/*',
   '*://*.facebook.com/*/videos/*', '*://*.facebook.com/reel/*', '*://*.facebook.com/watch*', '*://*.facebook.com/share/*', '*://fb.watch/*',
 ];
-const SITE_PAGES = ['*://x.com/*', '*://twitter.com/*', '*://*.reddit.com/*', '*://*.facebook.com/*'];
+
+// Pages that are themselves one post. Wider than POST_PATTERNS, which is for links:
+// every page shape the page script and the resolver accept as a single post.
+const POST_PAGE_PATTERNS = [
+  ...POST_PATTERNS,
+  '*://*.reddit.com/comments/*',
+  '*://*.facebook.com/*/posts/*', '*://*.facebook.com/*/permalink/*',
+  '*://*.facebook.com/permalink.php*', '*://*.facebook.com/story.php*', '*://*.facebook.com/video.php*',
+];
 
 // Limits on what one web page can ask for, so a misbehaving page can't flood the disk.
 const PAGE_MAX_RUNNING = 3;        // saves in progress per tab
 const PAGE_MAX_PER_MINUTE = 12;    // saves started per tab per minute
 const MERGES_AT_ONCE = 2;          // Reddit merges held in memory at the same time
+const MERGES_WAITING_MAX = 6;      // more than this queued and new Reddit merges are refused
 
 // Web pages (through the content script) must not be able to read history or settings.
 // Runs every time the worker starts; the empty onStartup listener makes sure that
@@ -29,14 +38,21 @@ function lockStorage() {
 lockStorage();
 chrome.runtime.onStartup.addListener(() => {});
 
-/* ------------------------------------------------------------ context menus */
+// A merge lives only as long as this worker. Any entry still marked "merging" when the
+// worker starts was cut off, so it is marked as failed instead of spinning forever.
+const mergesRunning = new Set();
+failStaleMerges(mergesRunning).catch(() => {});
 
-chrome.runtime.onInstalled.addListener(() => {
+/* ------------------------------------------------- install and context menus */
+
+chrome.runtime.onInstalled.addListener((details) => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'cs-video', title: 'Save video with ClipSnatcher', contexts: ['video'] });
     chrome.contextMenus.create({ id: 'cs-link', title: 'Save video from this link (ClipSnatcher)', contexts: ['link'], targetUrlPatterns: POST_PATTERNS });
-    chrome.contextMenus.create({ id: 'cs-page', title: 'Save video from this post (ClipSnatcher)', contexts: ['page', 'frame'], documentUrlPatterns: SITE_PAGES });
+    // Only offered on a post's own page, so it doesn't appear on every right-click in a feed.
+    chrome.contextMenus.create({ id: 'cs-page', title: 'Save this post’s video (ClipSnatcher)', contexts: ['page', 'frame'], documentUrlPatterns: POST_PAGE_PATTERNS });
   });
+  if (details.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
@@ -68,12 +84,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const src = canonicalUrl(info.srcUrl);
     if (!hint.videoSrc && src && !isPlaylist(src) && (!site || isSiteMediaUrl(site, src))) hint.videoSrc = src;
     // A video the page script couldn't tie to a post (an ad, a recommendation) is never
-    // swapped for the page's own post.
-    // The same goes for a click inside an embedded frame, which our script can't see into.
+    // swapped for the page's own post. The same goes for a click inside an embedded
+    // frame, which our script can't see into.
     const untied = overUntiedVideo || !!info.frameId;
     url = hint.postUrl || (site ? (untied ? hint.videoSrc || '' : pageUrl) : hint.videoSrc);
   }
 
+  tellTab(tabId, site, { pending: true });      // instant feedback while the video is looked up
   let result = await startDownload(url, hint, { tabId, fromPage: true, expectSite });
   if (result.needsConfirm) result = { ok: false, error: `That video is hosted on ${result.host}. To save it anyway, paste the post link into ClipSnatcher and confirm there.` };
   flashBadge(result.ok);
@@ -81,14 +98,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // A post on another site may be private to the user: don't put its title or details
   // into this page.
   const crossSite = info.menuItemId === 'cs-link' && detectSite(url || '') !== site;
-  const shown = !crossSite ? result
+  tellTab(tabId, site, !crossSite ? result
     : result.ok ? { ok: true, title: 'video from that link' }
-      : { ok: false, error: 'Couldn’t save that link. Open ClipSnatcher from the toolbar for details.' };
-  if (tabId == null) return;
-  // The tab may have moved to another site while the video was being found.
-  const now = await chrome.tabs.get(tabId).catch(() => null);
-  if (now && detectSite(now.url || '') === site) chrome.tabs.sendMessage(tabId, { type: 'clipsnatcher:toast', result: shown }, { frameId: 0 }).catch(() => {});
+      : { ok: false, error: 'Couldn’t save that link. Open ClipSnatcher from the toolbar for details.' });
 });
+
+// Shows a notice inside a tab, but only if the tab is still on the site the save was
+// made from (it may have moved on while the video was being found).
+async function tellTab(tabId, site, result) {
+  if (tabId == null || !site) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab && detectSite(tab.url || '') === site) chrome.tabs.sendMessage(tabId, { type: 'clipsnatcher:toast', result }, { frameId: 0 }).catch(() => {});
+}
 
 function flashBadge(ok) {
   chrome.action.setBadgeBackgroundColor({ color: ok ? '#1a7f37' : '#cf222e' });
@@ -174,8 +195,17 @@ const OWN_HANDLERS = {
   'clipsnatcher:reveal': (msg) => revealViaHelper(msg.id),
   'clipsnatcher:helperStatus': () => helperStatus(),
   'clipsnatcher:remove': (msg) => removeEntries(Array.isArray(msg.ids) ? msg.ids : []).then(() => ({ ok: true })),
+  'clipsnatcher:restore': (msg) => restore(msg.entries),
+  'clipsnatcher:deleteFile': (msg) => deleteFile(msg.id),
+  'clipsnatcher:findMissing': () => findMissing(),
   'clipsnatcher:clear': () => clearHistory().then(() => ({ ok: true })),
-  'clipsnatcher:progress': async () => ({ ok: true }),   // also keeps this worker awake during long merges
+  // Sent by the hidden merge page. Also keeps this worker awake during long merges.
+  'clipsnatcher:progress': async (msg) => {
+    if (typeof msg.jobId === 'string' && mergesRunning.has(msg.jobId) && Number.isFinite(msg.pct)) {
+      await sessionMap('progress', (m) => { m[msg.jobId] = Math.max(0, Math.min(100, Math.round(msg.pct))); });
+    }
+    return { ok: true };
+  },
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -186,45 +216,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-/* ----------------------------------------------------------------- filenames */
-
-function sanitize(s, max = 90) {
-  let out = String(s || '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/[\\/:*?"<>|~%]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  // Count whole characters so an emoji is never cut in half.
-  const chars = Array.from(out);
-  if (chars.length > max) {
-    const cut = chars.slice(0, max).join('');
-    const atWord = cut.replace(/\s+\S*$/, '');
-    out = atWord.length >= max * 0.6 ? atWord : cut;
-  }
-  return out.replace(/^[.\s]+|[.\s]+$/g, '');
-}
-
-function sanitizeFolder(f) {
-  return String(f || '').split(/[\\/]+/).map((p) => sanitize(p, 60)).filter(Boolean).join('/');
-}
-
-function extensionFor(item) {
-  if (item.kind !== 'direct') return 'mp4';
-  let path = '';
-  try { path = new URL(item.url).pathname; } catch { /* default below */ }
-  return (path.match(/\.(mp4|webm|mov|m4v)$/i)?.[1] || 'mp4').toLowerCase();
-}
-
-function buildFilename(settings, r, item, total) {
-  const folder = sanitizeFolder(settings.folder);
-  const sub = settings.perSite ? FOLDER_NAMES[r.site] || 'Web' : '';
-  const author = settings.authorInName && r.author ? sanitize(r.author.replace(/^@/, '').replace(/\//g, '-'), 30) + ' - ' : '';
-  const name = sanitize(r.title) || 'video';
-  const suffix = total > 1 ? ` (${item.index})` : '';
-  const file = `${author}${name} [${sanitize(r.id, 24) || shortHash(r.sourceUrl)}]${suffix}.${extensionFor(item)}`;
-  return [folder, sub, file].filter(Boolean).join('/');
-}
-
 /* ----------------------------------------------------------------- downloads */
 
 const itemUrls = (item) => (item.kind === 'direct' ? [item.url] : [item.video, item.audio]);
@@ -232,7 +223,7 @@ const NO_SOUND = 'It will have no sound: Reddit’s audio couldn’t be found or
 
 /**
  * Find the video for `url` and start saving it.
- * @returns {{ok:true,title,count,entries,warning?}|{ok:false,error}|{ok:false,needsConfirm:true,host,error}}
+ * @returns {{ok:true,title,count,entries,warning?}|{ok:false,error,failed?}|{ok:false,needsConfirm:true,host,error}}
  */
 async function startDownload(url, hint = {}, ctx = {}) {
   if (!url) return { ok: false, error: ctx.fromPage ? 'Couldn’t tell which post this video belongs to. Open the post itself, then save from there.' : 'Paste a link to a post first.' };
@@ -251,7 +242,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
     // One exception: the video file's own address, which has already been checked to be
     // on that site's media host. It is filed under the site it came from.
     const ownFile = SITE_LABEL[ctx.expectSite] && r.site === 'web' && r.items.flatMap(itemUrls).every((u) => isSiteMediaUrl(ctx.expectSite, u));
-    if (!ownFile) return { ok: false, error: 'That link doesn\u2019t lead to a post ClipSnatcher can save from. Open the post itself, then save from there.' };
+    if (!ownFile) return { ok: false, error: 'That link doesn’t lead to a post ClipSnatcher can save from. Open the post itself, then save from there.' };
     r.site = ctx.expectSite;
   }
 
@@ -283,31 +274,45 @@ async function startDownload(url, hint = {}, ctx = {}) {
   for (const item of r.items) {
     const filename = buildFilename(settings, r, item, r.items.length);
     const thumb = thumbFor(item.thumb || r.thumb);
+    const mediaUrl = item.kind === 'direct' ? item.url : item.video;
+    const entry = {
+      id: crypto.randomUUID(),
+      title: r.title, author: r.author, site: r.site, sourceUrl: r.sourceUrl,
+      mediaUrl, mediaHost: hostOf(mediaUrl), index: item.index, noAudio: !!item.noAudio,
+      whole: item.kind === 'direct' && !item.noAudio,   // false when mediaUrl is only the picture track
+      filename, path: null, downloadId: null, dlStart: null,
+      state: 'in_progress', error: '', bytes: 0, createdAt: Date.now(), thumb: null,
+    };
     try {
-      const out = await saveItem(item, filename);
-      const [dl] = await chrome.downloads.search({ id: out.id });
-      const noAudio = !!(out.noAudio || item.noAudio);
-      const mediaUrl = item.kind === 'direct' ? item.url : item.video;
-      const entry = {
-        id: crypto.randomUUID(),
-        title: r.title, author: r.author, site: r.site, sourceUrl: r.sourceUrl,
-        mediaUrl, mediaHost: hostOf(mediaUrl), index: item.index, noAudio,
-        whole: item.kind === 'direct' && !noAudio,   // false when mediaUrl is only the picture track
-        filename, path: null, downloadId: out.id, dlStart: dl?.startTime || null,
-        state: 'in_progress', error: '', bytes: 0, createdAt: Date.now(), thumb: null,
-      };
+      if (item.kind === 'mux') {
+        if (merging + mergeWaiters.length >= MERGES_AT_ONCE + MERGES_WAITING_MAX) {
+          problems.push('Too many Reddit videos are being merged at once. Try again in a moment.');
+          continue;
+        }
+        // Merging takes a while, so the row appears now (as "Merging") and the reply goes
+        // out without waiting. The outcome is reported by a notice, like any later failure.
+        entry.state = 'merging';
+        await addEntry(entry);
+        thumb.then((data) => data && updateEntry(entry.id, { thumb: data }));
+        finishMerge(entry, item, filename, ctx.tabId ?? null);
+        saved.push(entry);
+        continue;
+      }
+      const downloadId = await download(item.url, filename);
+      const [dl] = await chrome.downloads.search({ id: downloadId });
+      Object.assign(entry, { downloadId, dlStart: dl?.startTime || null });
       await addEntry(entry);
-      if (ctx.tabId != null) await sessionMap('tabs', (m) => { m[out.id] = ctx.tabId; });
+      if (ctx.tabId != null) await sessionMap('tabs', (m) => { m[downloadId] = ctx.tabId; });
       thumb.then((data) => data && updateEntry(entry.id, { thumb: data }));
       // The download may already have finished or failed before the entry existed.
-      const now = await reconcile(out.id, { quiet: true });
+      const now = await reconcile(downloadId, { quiet: true });
       if (now?.state === 'interrupted') {
         problems.push(`The download failed straight away (${failureReason(now.error)}).`);
         failed.push(entry.id);
         continue;                               // the failed row stays in history; this isn't a success
       }
       saved.push(entry);
-      if (noAudio) warning = NO_SOUND;
+      if (entry.noAudio) warning = NO_SOUND;
     } catch (e) {
       problems.push(`Chrome couldn’t start the download: ${e?.message || String(e)}`);
     }
@@ -331,23 +336,63 @@ async function download(url, filename) {
   }
 }
 
-async function saveItem(item, filename) {
-  if (item.kind === 'direct') return { id: await download(item.url, filename) };
-  let res;
-  try { res = await mergeInOffscreen(item); } catch (e) { res = { ok: false, error: e?.message || String(e) }; }
-  if (!res?.ok) {
-    // Couldn't merge: still save the picture so the user gets something, and say so.
-    console.warn('ClipSnatcher: merge failed', res?.error);
-    return { id: await download(item.video, filename.replace(/\.mp4$/, ' (no audio).mp4')), noAudio: true };
-  }
+// Runs after the reply for a Reddit save has gone out: merges the two tracks, hands the
+// result to Chrome, and ties the waiting history row to that download.
+async function finishMerge(entry, item, filename, tabId) {
+  mergesRunning.add(entry.id);
+  const stillWanted = async () => (await getHistory()).some((e) => e.id === entry.id);
   try {
-    const id = await download(res.url, filename);
-    await sessionMap('blobs', (m) => { m[id] = res.url; });
-    return { id };
+    let res;
+    try { res = await mergeInOffscreen(item, entry.id); } catch (e) { res = { ok: false, error: e?.message || String(e) }; }
+    // Removing the row (or clearing history) while it merges cancels the save: nothing
+    // is written to disk and the merged data is let go.
+    if (!(await stillWanted())) {
+      if (res?.ok) revokeInOffscreen(res.url);
+      return;
+    }
+    let downloadId;
+    let noAudio = false;
+    if (res?.ok) {
+      try {
+        downloadId = await download(res.url, filename);
+        await sessionMap('blobs', (m) => { m[downloadId] = res.url; });
+      } catch (e) {
+        revokeInOffscreen(res.url);
+        throw e;
+      }
+    } else {
+      // Couldn't merge: still save the picture so the user gets something, and say so.
+      console.warn('ClipSnatcher: merge failed', res?.error);
+      downloadId = await download(item.video, filename.replace(/\.mp4$/, ' (no audio).mp4'));
+      noAudio = true;
+    }
+    const [dl] = await chrome.downloads.search({ id: downloadId });
+    await updateEntry(entry.id, { downloadId, dlStart: dl?.startTime || null, state: 'in_progress', noAudio });
+    if (tabId != null) await sessionMap('tabs', (m) => { m[downloadId] = tabId; });
+    const now = await reconcile(downloadId);
+    if (noAudio && now && now.state !== 'interrupted') {
+      flashBadge(false);
+      rememberResult({ ok: false, error: `${entry.title} is being saved without sound: Reddit's audio couldn't be merged in.` });
+      tellTab(tabId, entry.site, { ok: false, error: 'A Reddit video is being saved without sound: its audio couldn\u2019t be merged in.' });
+    }
   } catch (e) {
-    revokeInOffscreen(res.url);
-    throw e;
+    console.warn('ClipSnatcher: could not save merged video', e);
+    await updateEntry(entry.id, { state: 'interrupted', error: 'MERGE_FAILED' });
+    flashBadge(false);
+    rememberResult({ ok: false, error: `Couldn't save "${entry.title}": ${e?.message || 'the merge failed'}.` });
+    tellTab(tabId, entry.site, { ok: false, error: 'A ClipSnatcher download failed. Open ClipSnatcher from the toolbar for details.' });
+  } finally {
+    mergesRunning.delete(entry.id);
+    sessionMap('progress', (m) => { delete m[entry.id]; }).catch(() => {});
   }
+}
+
+// Undo for "Remove from history". What comes back is a snapshot from when the row was
+// removed, so it is brought up to date with Chrome's record straight away.
+async function restore(entries) {
+  const back = (await restoreEntries(Array.isArray(entries) ? entries : [], mergesRunning)) || [];
+  for (const e of back) if (e.downloadId != null) await reconcile(e.downloadId, { quiet: true }).catch(() => {});
+  return { ok: true, restored: back.length };
 }
 
 /* ------------------------------------------------------- hidden merge page */
@@ -365,14 +410,14 @@ async function withMergeSlot(fn) {
 
 // The hidden page closes itself when it has no jobs and no files in hand, so a
 // message can arrive just as it goes away. A short wait and a retry cover that.
-function mergeInOffscreen(item) {
+function mergeInOffscreen(item, jobId) {
   return withMergeSlot(async () => {
     let lastError = 'The merge page didn’t answer.';
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await pause(400);
       try {
         await ensureOffscreen();
-        const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'mux', video: item.video, audio: item.audio });
+        const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'mux', jobId, video: item.video, audio: item.audio });
         if (res) return res;
       } catch (e) {
         lastError = e?.message || String(e);
@@ -399,7 +444,7 @@ function revokeInOffscreen(url) {
 }
 
 // Small maps that must survive this worker being restarted: which merged file belongs
-// to which download, and which tab asked for it.
+// to which download, which tab asked for it, and how far each merge has got.
 let sessionQueue = Promise.resolve();
 function sessionMap(key, fn) {
   const run = sessionQueue.then(async () => {
@@ -436,7 +481,7 @@ async function reconcile(downloadId, { quiet = false } = {}) {
     if (item.state === 'complete') { patch.bytes = item.fileSize || item.totalBytes || 0; patch.error = ''; }
     return patch;
   });
-  if (!changed) return;                                   // entry not written yet; startDownload calls us again
+  if (!changed) return;                                   // entry not written yet; the caller reconciles again
   const { entry, was } = changed;
 
   // A download that was redirected to a host nobody agreed to is stopped and removed.
@@ -453,13 +498,10 @@ async function reconcile(downloadId, { quiet = false } = {}) {
   const tabId = await takeFromSession('tabs', downloadId);
   if (quiet || entry.state !== 'interrupted' || was === 'interrupted' || entry.error === 'USER_CANCELED') return entry;
 
-  const result = { ok: false, error: `A ClipSnatcher download failed (${failureReason(entry.error)}). Open ClipSnatcher from the toolbar for details.` };
   flashBadge(false);
   rememberResult({ ok: false, error: `Download failed (${failureReason(entry.error)}): ${entry.title}` });
-  if (tabId == null) return entry;
   // Only tell the page that asked, and only if it is still on that site.
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (tab && detectSite(tab.url || '') === entry.site) chrome.tabs.sendMessage(tabId, { type: 'clipsnatcher:toast', result }, { frameId: 0 }).catch(() => {});
+  tellTab(tabId, entry.site, { ok: false, error: `A ClipSnatcher download failed (${failureReason(entry.error)}). Open ClipSnatcher from the toolbar for details.` });
   return entry;
 }
 
@@ -493,6 +535,39 @@ async function redownload(id, allowHost = '') {
   // A retry that failed at once shouldn't pile up more failed rows next to the original.
   if (!res.ok && res.failed?.length) await removeEntries(res.failed);
   return res;
+}
+
+// Deletes the saved file (through Chrome) and then the history entry.
+async function deleteFile(id) {
+  const e = await findEntry(id);
+  const item = await downloadItemFor(e);
+  if (!item) return { ok: false, error: 'Chrome no longer lists this file, so it can’t delete it for you. Delete it in your file manager, then remove the entry.' };
+  if (item.state === 'in_progress') await chrome.downloads.cancel(item.id).catch(() => {});
+  else if (item.exists !== false && item.state === 'complete') await chrome.downloads.removeFile(item.id);
+  await removeEntries([id]);
+  return { ok: true };
+}
+
+// The entries whose file Chrome says is gone. Entries Chrome no longer lists are left
+// alone: their file may well still be there.
+// Chrome only re-checks whether files exist when a download is looked up, does so at
+// most once every 10 seconds, and reports the answer on a later lookup. So: look
+// everything up, wait out that limit, look everything up again (this one is honoured),
+// give the check a moment, then read the answers. Takes about 11 seconds.
+async function findMissing() {
+  const list = await getHistory();
+  const sweep = async (onItem) => {
+    for (let i = 0; i < list.length; i += 25) {
+      await Promise.all(list.slice(i, i + 25).map(async (e) => onItem(e, await downloadItemFor(e).catch(() => null))));
+    }
+  };
+  await sweep(() => {});
+  await pause(10500);
+  await sweep(() => {});
+  await pause(700);
+  const missing = [];
+  await sweep((e, item) => { if (item && item.state === 'complete' && item.exists === false) missing.push(e.id); });
+  return { ok: true, ids: missing };
 }
 
 /* ------------------------------------------------------ copy-to-clipboard helper */
@@ -533,7 +608,7 @@ async function copyFile(id) {
 async function revealViaHelper(id) {
   const path = await finishedPath(id);
   const res = await askHelper({ action: 'reveal', path });
-  return res?.ok ? { ok: true } : { ok: false, error: res?.error || 'Couldn’t show that file.' };
+  return res?.ok ? { ok: true } : { ok: false, needsHelper: !!res?.needsHelper, error: res?.error || 'Couldn’t show that file.' };
 }
 
 async function helperStatus() {

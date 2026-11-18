@@ -7,49 +7,53 @@
 <link rel="icon" href="icons/32.png">
 <link rel="stylesheet" href="ui.css">
 <style>
-  body { font-size: 13.5px; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 72px; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
   .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
   .brand img { width: 26px; height: 26px; }
+  .head-actions { display: flex; gap: 8px; }
   .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; position: sticky; top: 0; background: var(--bg); padding: 8px 0; z-index: 1; }
   .tools input { flex: 1 1 260px; }
-  .chips { display: flex; gap: 4px; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
   .chip { appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 999px; height: 30px; padding: 0 12px; font: inherit; cursor: pointer; }
   .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
-  .count { color: var(--muted); font-size: 12.5px; margin: 4px 8px 6px; }
-  .row { grid-template-columns: 96px 1fr auto; padding: 10px; }
+  .count { color: var(--muted); font-size: 12.5px; margin: 4px 8px 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; min-height: 26px; }
+  .row { grid-template-columns: 96px minmax(0, 1fr) auto; padding: 10px; }
   .thumb { width: 96px; height: 60px; }
-  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: 10px 14px; border-radius: 10px; background: var(--text); color: var(--bg); font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); display: none; }
-  #toast.err { background: var(--err); color: #fff; }
-  #more { display: block; margin: 12px auto; }
-  @media (max-width: 640px) {
-    .row { grid-template-columns: 64px 1fr; }
+  .thumb-play svg { width: 26px; height: 26px; }
+  #more { display: flex; margin: 12px auto; }
+  @media (max-width: 760px) {
+    .tools { position: static; }
+    .row { grid-template-columns: 64px minmax(0, 1fr); }
     .thumb { width: 64px; height: 44px; }
     .actions { grid-column: 1 / -1; flex-wrap: wrap; }
   }
 </style>
 </head>
-<body>
+<body class="page">
 <div class="wrap">
   <header>
-    <div class="brand"><img src="icons/48.png" alt="">ClipSnatcher history</div>
-    <a class="btn" href="options.html" id="settings"></a>
+    <h1 class="brand"><img src="icons/48.png" alt="">ClipSnatcher history</h1>
+    <div class="head-actions">
+      <button class="btn" id="cleanup" type="button" title="Remove entries whose file has been moved or deleted">Tidy up</button>
+      <a class="btn" href="options.html" id="settings"></a>
+    </div>
   </header>
   <div class="tools">
     <input type="search" id="q" aria-label="Search saved videos" placeholder="Search by title, author, site or link" autofocus>
-    <div class="chips" id="chips">
+    <div class="chips" id="chips" role="group" aria-label="Filter by site">
       <button class="chip" data-site="" aria-pressed="true">All</button>
       <button class="chip" data-site="x" aria-pressed="false">X</button>
       <button class="chip" data-site="reddit" aria-pressed="false">Reddit</button>
       <button class="chip" data-site="facebook" aria-pressed="false">Facebook</button>
+      <button class="chip" data-site="web" aria-pressed="false">Other</button>
     </div>
   </div>
-  <div class="count" id="count"></div>
-  <div id="list"></div>
+  <div class="count"><span id="count"></span><button class="btn small" id="clearFilters" type="button" hidden>Clear search and filter</button></div>
+  <div id="list" role="list" aria-label="Saved videos"></div>
   <button class="btn" id="more" hidden>Show more</button>
 </div>
-<div id="toast" role="status"></div>
+<div class="notice" id="notice" role="status" hidden></div>
 <script type="module" src="history.js"></script>
 </body>
 </html>

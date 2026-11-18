@@ -80,6 +80,8 @@ export function failureReason(code) {
   if (!code) return '';
   if (code === 'USER_CANCELED') return 'cancelled';
   if (code === 'REDIRECTED') return 'the address redirected to another site';
+  if (code === 'MERGE_FAILED') return 'couldn\u2019t merge the video and sound';
+  if (code === 'MERGE_INTERRUPTED') return 'the merge was interrupted';
   if (code === 'FILE_NO_SPACE') return 'disk is full';
   if (/^FILE_(ACCESS_DENIED|BLOCKED|SECURITY_CHECK_FAILED|VIRUS_INFECTED)/.test(code)) return 'blocked by Chrome or the system';
   if (/^FILE_/.test(code)) return 'couldn’t write the file';
@@ -93,3 +95,29 @@ export const removeEntries = (ids) => mutateHistory((list) => {
 });
 
 export const clearHistory = () => mutateHistory((list) => { list.length = 0; });
+
+// Puts removed entries back (Undo). Only plain entry objects with an id that isn't
+// already present are accepted, and the list is kept newest first. An entry that was
+// "merging" when removed, and whose merge is no longer in `running`, comes back as
+// failed (removing the row cancelled that merge). Resolves to the restored entries.
+export const restoreEntries = (entries, running = new Set()) => mutateHistory((list) => {
+  const have = new Set(list.map((e) => e.id));
+  const back = [];
+  for (const e of entries.slice(0, MAX_HISTORY)) {
+    if (!e || typeof e !== 'object' || typeof e.id !== 'string' || typeof e.title !== 'string' || !Number.isFinite(e.createdAt) || have.has(e.id)) continue;
+    have.add(e.id);
+    back.push(e.state === 'merging' && !running.has(e.id) ? { ...e, state: 'interrupted', error: 'MERGE_INTERRUPTED' } : { ...e });
+  }
+  if (!back.length) return NO_CHANGE;
+  list.push(...back);
+  list.sort((a, b) => b.createdAt - a.createdAt);
+  if (list.length > MAX_HISTORY) list.length = MAX_HISTORY;
+  return back.map((e) => ({ id: e.id, downloadId: e.downloadId ?? null }));
+});
+
+// Marks entries stuck in "merging" as failed, except the merges in `running`.
+export const failStaleMerges = (running) => mutateHistory((list) => {
+  let n = 0;
+  for (const e of list) if (e.state === 'merging' && !running.has(e.id)) { e.state = 'interrupted'; e.error = 'MERGE_INTERRUPTED'; n++; }
+  return n || NO_CHANGE;
+});

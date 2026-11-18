@@ -1,62 +1,103 @@
 import { getSettings, saveSettings, getHistory } from './lib/store.js';
+import { buildFilename, sanitizeFolder } from './lib/names.js';
+import { ICON } from './lib/ui.js';
 
 const $ = (id) => document.getElementById(id);
-const say = (t, k = '') => { $('status').textContent = t; $('status').className = 'status ' + k; };
+$('historyLink').innerHTML = ICON.history + 'History';
+
+// A short notice at the bottom of the page. Errors stay until replaced.
+let noticeTimer;
+function say(text, kind = '') {
+  const n = $('notice');
+  clearTimeout(noticeTimer);
+  n.hidden = !text;
+  n.className = 'notice ' + kind;
+  n.textContent = text;
+  if (text && kind !== 'err') noticeTimer = setTimeout(() => { n.hidden = true; }, 2200);
+}
+
+const TOGGLES = ['perSite', 'authorInName', 'hoverButton'];
+const SAMPLE = { site: 'reddit', title: 'Post title', author: 'r/subreddit', id: 'id' };
 
 async function init() {
   const s = await getSettings();
   $('folder').value = s.folder;
-  for (const k of ['perSite', 'authorInName', 'hoverButton']) $(k).checked = !!s[k];
+  for (const k of TOGGLES) $(k).checked = !!s[k];
   preview();
   stats();
-  checkHelper();
+  setUpHelper();
+  chrome.commands.getAll().then((all) => { const c = all.find((x) => x.name === '_execute_action'); $('shortcut').textContent = c?.shortcut || 'not set'; }).catch(() => {});
 }
 
+// Uses the same naming code as the background worker, so this is exactly what gets saved.
 function preview() {
-  const f = $('folder').value.trim() || '(Downloads)';
-  $('preview').textContent = `Downloads/${$('folder').value.trim() ? f + '/' : ''}${$('perSite').checked ? 'Reddit/' : ''}${$('authorInName').checked ? 'author - ' : ''}Post title [id].mp4`;
+  const typed = $('folder').value.trim();
+  const settings = { folder: typed, perSite: $('perSite').checked, authorInName: $('authorInName').checked };
+  $('preview').textContent = 'Downloads/' + buildFilename(settings, SAMPLE, { kind: 'mux', index: 1 }, 1);
+  const cleaned = sanitizeFolder(typed);
+  $('previewNote').textContent = cleaned !== typed.replace(/^[\\/]+|[\\/]+$/g, '') ? ' (some characters in the folder name aren’t allowed in file paths and were dropped)' : '';
 }
 
 let t;
-$('folder').addEventListener('input', () => { preview(); clearTimeout(t); t = setTimeout(() => saveSettings({ folder: $('folder').value.trim() }).then(() => say('Saved.', 'ok')), 400); });
-for (const k of ['perSite', 'authorInName', 'hoverButton']) {
-  $(k).addEventListener('change', async () => { preview(); await saveSettings({ [k]: $(k).checked }); say('Saved.', 'ok'); });
+$('folder').addEventListener('input', () => {
+  preview();
+  clearTimeout(t);
+  t = setTimeout(async () => { await saveSettings({ folder: $('folder').value.trim() }); say('Saved', 'ok'); }, 500);
+});
+for (const k of TOGGLES) {
+  $(k).addEventListener('change', async () => { preview(); await saveSettings({ [k]: $(k).checked }); say('Saved', 'ok'); });
 }
+$('showFolder').onclick = () => chrome.downloads.showDefaultFolder();
+$('chromeDownloads').onclick = () => chrome.tabs.create({ url: 'chrome://settings/downloads' });
+$('shortcuts').onclick = (e) => { e.preventDefault(); chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }); };
 
 async function stats() {
   const h = await getHistory();
-  const bytes = new Blob([JSON.stringify(h)]).size;
-  $('stats').textContent = `${h.length} item${h.length === 1 ? '' : 's'} in history (${(bytes / 1024).toFixed(0)} KB).`;
+  const bytes = await chrome.storage.local.getBytesInUse('history').catch(() => 0);
+  $('stats').textContent = `${h.length} video${h.length === 1 ? '' : 's'} in history${bytes ? ` (${Math.max(1, Math.round(bytes / 1024))} KB)` : ''}.`;
 }
+
+/* ---------------------------------------------------------------- copy helper */
 
 // The helper only answers extension IDs it was installed for. This copy's ID is added
 // to the command unless it is the project's own development ID (the installer's default).
 const DEV_ID = 'phdbcmaifcaagmfkmbdhokgmkldllajj';
-$('installCmd').textContent = 'bash ~/Projects/ClipSnatcher/native-helper/install.sh' + (chrome.runtime.id === DEV_ID ? '' : ' ' + chrome.runtime.id);
 const HELPER_PERMISSION = { permissions: ['nativeMessaging'] };
+
+async function setUpHelper() {
+  const { os } = await chrome.runtime.getPlatformInfo().catch(() => ({ os: 'mac' }));
+  $('helperMac').hidden = os !== 'mac';
+  $('helperOther').hidden = os === 'mac';
+  if (os !== 'mac') return;
+  $('installCmd').textContent = 'bash ~/Projects/ClipSnatcher/native-helper/install.sh' + (chrome.runtime.id === DEV_ID ? '' : ' ' + chrome.runtime.id);
+  checkHelper();
+}
+
 async function checkHelper() {
   $('helperDot').className = 'dot';
-  $('helperText').textContent = 'Checking\u2026';
+  $('helperText').textContent = 'Checking…';
   let r;
   try { r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:helperStatus' }); } catch { r = null; }
   $('enableHelper').hidden = r?.permission !== false;
   $('helperDot').className = 'dot ' + (r?.ok ? 'on' : '');
   $('helperText').textContent = r?.ok
-    ? `Helper installed (v${r.version || '1'}). Copy puts the actual video on your clipboard.`
+    ? `Helper installed (version ${r.version || '1'}). Copy puts the actual video on your clipboard.`
     : r?.permission === false
       ? 'Not switched on. Install the helper with the command below, then switch it on.'
       : r?.restart
         ? 'Switched on. Reload ClipSnatcher on the Extensions page (or restart Chrome) to finish, then check again.'
-        : 'Switched on, but the helper isn\u2019t installed or didn\u2019t answer. Run the command below, then check again.';
+        : 'Switched on, but the helper isn’t installed or didn’t answer. Run the command below, then check again.';
 }
 $('recheck').onclick = checkHelper;
 // Must run directly inside the click so Chrome accepts the permission request.
 $('enableHelper').onclick = async () => {
   const granted = await chrome.permissions.request(HELPER_PERMISSION).catch(() => false);
-  if (!granted) return say('Chrome didn\u2019t grant the permission, so the copy helper stays off.', 'err');
+  if (!granted) return say('Chrome didn’t grant the permission, so the copy helper stays off.', 'err');
   checkHelper();
 };
-$('copyCmd').onclick = async () => { await navigator.clipboard.writeText($('installCmd').textContent); say('Command copied.', 'ok'); };
+$('copyCmd').onclick = async () => { await navigator.clipboard.writeText($('installCmd').textContent); say('Command copied', 'ok'); };
+
+/* ------------------------------------------------------------------ your data */
 
 $('export').onclick = async () => {
   const h = (await getHistory()).map(({ thumb, ...rest }) => rest);
@@ -64,12 +105,13 @@ $('export').onclick = async () => {
   const a = Object.assign(document.createElement('a'), { href: url, download: `clipsnatcher-history-${new Date().toISOString().slice(0, 10)}.json` });
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+  say(`Exported ${h.length} video${h.length === 1 ? '' : 's'}`, 'ok');
 };
 $('clear').onclick = async () => {
   if (!confirm('Clear all ClipSnatcher history? Your video files are not deleted.')) return;
   await chrome.runtime.sendMessage({ type: 'clipsnatcher:clear' });
   stats();
-  say('History cleared.', 'ok');
+  say('History cleared', 'ok');
 };
 
 init();

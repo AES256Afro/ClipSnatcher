@@ -58,25 +58,29 @@ async function fetchBytes(url, label, onProgress) {
 
 async function merge(msg) {
   let last = 0;
-  const onProgress = (label, got, total) => {
+  const seen = {};   // per track: bytes so far and expected size
+  const report = (force) => {
     const now = Date.now();
-    if (now - last < 1500) return;
-    last = now;   // these messages also keep the background worker awake while bytes arrive
-    chrome.runtime.sendMessage({ type: 'clipsnatcher:progress', label, got, total }).catch(() => {});
+    if (!force && now - last < 1500) return;
+    last = now;   // these messages also keep the background worker awake
+    const tracks = Object.values(seen);
+    const total = tracks.reduce((n, t) => n + t.total, 0);
+    const pct = tracks.length === 2 && total > 0 && tracks.every((t) => t.total > 0) ? (tracks.reduce((n, t) => n + t.got, 0) / total) * 100 : NaN;
+    chrome.runtime.sendMessage({ type: 'clipsnatcher:progress', jobId: msg.jobId, pct }).catch(() => {});
   };
+  const onProgress = (label, got, total) => { seen[label] = { got, total }; report(false); };
   // The background worker is put to sleep after 30 quiet seconds. Ping it on a timer
-  // too, so a stalled connection doesn't end the save half-way.
-  const keepAwake = setInterval(() => chrome.runtime.sendMessage({ type: 'clipsnatcher:progress' }).catch(() => {}), KEEP_AWAKE_MS);
-  let v, a;
+  // too, so neither a stalled connection nor a long merge ends the save half-way.
+  const keepAwake = setInterval(() => report(true), KEEP_AWAKE_MS);
   try {
-    [v, a] = await Promise.all([fetchBytes(msg.video, 'video', onProgress), fetchBytes(msg.audio, 'audio', onProgress)]);
+    const [v, a] = await Promise.all([fetchBytes(msg.video, 'video', onProgress), fetchBytes(msg.audio, 'audio', onProgress)]);
+    const blob = new Blob(muxAV(v, a), { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    blobs.set(url, setTimeout(() => revoke(url), BLOB_LIFETIME_MS));
+    return { ok: true, url, size: blob.size };
   } finally {
     clearInterval(keepAwake);
   }
-  const blob = new Blob(muxAV(v, a), { type: 'video/mp4' });
-  const url = URL.createObjectURL(blob);
-  blobs.set(url, setTimeout(() => revoke(url), BLOB_LIFETIME_MS));
-  return { ok: true, url, size: blob.size };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
