@@ -166,7 +166,7 @@ r = await msg({ type: 'clipsnatcher:download', url: XPOST, force: true });
 await wait(3500);
 qEntry = (await evalIn(page, `chrome.storage.local.get('history').then(h => h.history[0])`));
 const qHeight = Number((qEntry?.mediaUrl || '').match(/\/\d+x(\d+)\//)?.[1] || 0);
-const qFile = onDisk().map((f) => DL + '/' + f).find((f) => f.endsWith(qEntry?.path?.split('/').pop() || '#'));
+const qFile = onDisk().map((f) => DL + '/' + f).find((f) => f.endsWith(qEntry?.path?.split(/[\\/]/).pop() || '#'));
 const qSize = qFile ? fs.statSync(qFile).size : 0;
 check('"Fit under 1 MB" picks a version that really is under 1 MB, using sizes from the site', r?.ok === true && qHeight > 0 && qHeight <= 360 && qSize > 0 && qSize <= 1048576 && /MB/.test(r.detail || ''), JSON.stringify([r, qHeight, qSize]));
 await setSettings({ quality: 'best' });
