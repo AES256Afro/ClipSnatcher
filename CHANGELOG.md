@@ -2,6 +2,12 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
+## 1.5.0 (2026-11-18)
+
+- **Copy on Windows:** the copy helper now has a Windows version, so **Copy**, "copy when saved" and the copy-last-video shortcut work there too. It puts the saved video on the clipboard the same way Ctrl+C in File Explorer does, ready to paste into Discord. Install it by double-clicking `native-helper\windows\install.cmd` (no admin rights needed); it works for Chrome, Edge and Brave. Settings shows the Windows instructions and the exact command on Windows.
+- **Copy shortcut on Windows is Alt+Shift+D.** Chrome on Windows doesn't allow Alt+Shift+C, so until now the copy shortcut had no key there. macOS keeps Alt+Shift+C.
+- The Windows helper only accepts video files that exist on one of the computer's drives (not network shares), finds the file's real name before checking it, and refuses links. Its tests run on Windows on every push.
+
 ## 1.4.0 (2026-11-18)
 
 - **Video quality:** a new setting picks Best available, Smaller (720p or the next size down), or the best version under a size you choose, for chat apps with an upload limit. Sizes are checked with the site's own video host before saving; if nothing fits, the smallest is saved and you're told its size.

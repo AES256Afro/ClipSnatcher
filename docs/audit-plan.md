@@ -133,7 +133,7 @@ Changed from the plan as written:
 38. **Favourites and one searchable note per video.**
 39. **Import and full backup**, since removing the extension erases history.
 40. **Keyboard commands:** save the post in this tab, copy the last video, and keys for the history list.
-41. **Windows copy helper**, only if this goes beyond your Mac.
+41. **Windows copy helper**, only if this goes beyond your Mac. *Done in 1.5.0, built and tested on a Windows 11 computer.*
 42. **Later:** file name templates, pasting several links at once, multi-select.
 
 **Considered and rejected:** GIF export, trimming, audio-only export, YouTube (banned by the store), Instagram, TikTok, Threads, stream-only sources, a Save button on every site, batch scraping of profiles, drag-out of files, a Linux helper, cloud sync, and scheduled backups. Each either breaks the "no servers, stays fast" promise, raises store or legal risk, or costs far more than it returns.

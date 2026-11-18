@@ -26,10 +26,14 @@ export const ICON = {
 };
 
 
-// The copy helper is macOS-only, and file-manager wording differs by system.
-export const platform = { mac: true };
-export const platformReady = chrome.runtime.getPlatformInfo().then((i) => { platform.mac = i.os === 'mac'; }).catch(() => {});
-const fileManager = () => (platform.mac ? 'Finder' : 'your file manager');
+// The copy helper exists for macOS and Windows, and file-manager wording differs by system.
+export const platform = { mac: true, win: false, helper: true };
+export const platformReady = chrome.runtime.getPlatformInfo().then((i) => {
+  platform.mac = i.os === 'mac';
+  platform.win = i.os === 'win';
+  platform.helper = platform.mac || platform.win;
+}).catch(() => {});
+const fileManager = () => (platform.mac ? 'Finder' : platform.win ? 'File Explorer' : 'your file manager');
 const copyKeys = () => (platform.mac ? '⌘C' : 'Ctrl+C');
 
 export function esc(s) {
@@ -140,8 +144,8 @@ const THUMB_OK = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
 // Main buttons depend on what can actually be done with the file right now.
 // Everything else lives in the More menu.
 function mainActions(state) {
-  if (state === 'ready') return [['play', 'play', 'Play'], ['show', 'folder', 'Show in folder'], ...(platform.mac ? [['copy', 'copy', 'Copy']] : [])];
-  if (state === 'unlisted') return [...(platform.mac ? [['show', 'folder', 'Show in folder']] : []), ['copypath', 'path', 'Copy path']];
+  if (state === 'ready') return [['play', 'play', 'Play'], ['show', 'folder', 'Show in folder'], ...(platform.helper ? [['copy', 'copy', 'Copy']] : [])];
+  if (state === 'unlisted') return [...(platform.helper ? [['show', 'folder', 'Show in folder']] : []), ['copypath', 'path', 'Copy path']];
   if (state === 'failed' || state === 'missing') return [['redo', 'redo', 'Download again']];
   return [];
 }
@@ -326,7 +330,7 @@ export async function handleAction(act, entry, say, cached) {
       if (r?.ok) return say('Video copied. Paste it into Discord, Messages and so on.', 'ok');
       if (r?.needsHelper && ready) {
         chrome.downloads.show(entry.downloadId);
-        return say(`The file is shown in ${fileManager()}: press ${copyKeys()} there, then paste.${platform.mac ? ' For one-click copy, set up the copy helper in Settings.' : ''}`);
+        return say(`The file is shown in ${fileManager()}: press ${copyKeys()} there, then paste.${platform.helper ? ' For one-click copy, set up the copy helper in Settings.' : ''}`);
       }
       return say(r?.error || 'Couldn’t copy the file.', 'err');
     }
