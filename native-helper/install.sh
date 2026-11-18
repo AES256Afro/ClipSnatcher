@@ -3,7 +3,7 @@
 # Only writes inside your home folder. Undo with: bash uninstall.sh
 set -euo pipefail
 
-EXT_ID="phdbcmaifcaagmfkmbdhokgmkldllajj"   # fixed by the "key" in extension/manifest.json
+DEV_ID="phdbcmaifcaagmfkmbdhokgmkldllajj"   # the unpacked copy: fixed by the "key" in extension/manifest.json
 HOST="com.clipsnatcher.helper"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/Library/Application Support/ClipSnatcher"
@@ -13,13 +13,29 @@ cp "$HERE/clipsnatcher-helper.js" "$DEST/clipsnatcher-helper.js"
 chmod 755 "$DEST/clipsnatcher-helper.js"
 xattr -d com.apple.quarantine "$DEST/clipsnatcher-helper.js" 2>/dev/null || true
 
+# Which copies of the extension may use the helper.
+#   bash install.sh                  the unpacked copy loaded from this folder
+#   bash install.sh <id> [<id>...]   only the copies with these IDs, e.g. the Chrome Web
+#                                    Store copy (its Settings page shows the exact command)
+# Anyone can load an unpacked extension that carries this project's public key, so the
+# development ID is only allowed when you ask for it by passing no IDs.
+if [ "$#" -eq 0 ]; then set -- "$DEV_ID"; fi
+ORIGINS=""
+for id in "$@"; do
+  if [[ ! "$id" =~ ^[a-p]{32}$ ]]; then
+    echo "Not a Chrome extension ID (expected 32 letters a-p): $id" >&2
+    exit 1
+  fi
+  ORIGINS="${ORIGINS:+$ORIGINS, }\"chrome-extension://$id/\""
+done
+
 MANIFEST=$(cat <<JSON
 {
   "name": "$HOST",
   "description": "ClipSnatcher copy helper: puts a saved video file on the clipboard",
   "path": "$DEST/clipsnatcher-helper.js",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+  "allowed_origins": [$ORIGINS]
 }
 JSON
 )
@@ -36,7 +52,9 @@ for browser in "Google/Chrome" "Google/Chrome Beta" "Google/Chrome Canary" "Chro
   # Remove the helper from before the rename (ClipStash), if present.
   rm -f "$base/NativeMessagingHosts/com.clipstash.helper.json"
 done
-rm -rf "$HOME/Library/Application Support/ClipStash"
+# Only our own old file: a "ClipStash" folder could belong to a different app.
+rm -f "$HOME/Library/Application Support/ClipStash/clipstash-helper.js"
+rmdir "$HOME/Library/Application Support/ClipStash" 2>/dev/null || true
 
 echo "ClipSnatcher copy helper installed ($installed browser(s))."
 echo "Open ClipSnatcher settings and click 'Check again'."

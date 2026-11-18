@@ -1,4 +1,5 @@
 // Shared UI pieces for the popup and the history page.
+import { isEntryDownload, failureReason } from './store.js';
 
 export const ICON = {
   copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>',
@@ -41,30 +42,60 @@ export async function getHistory() {
   return Array.isArray(history) ? history : [];
 }
 
-// Look up live state (progress, file still exists) for the rows on screen.
+// Look up live state (progress, file still exists) for the rows on screen. A Chrome
+// download record only counts if it is the very download this entry was created for.
 export async function liveState(entries) {
   const map = new Map();
   await Promise.all(entries.filter((e) => e.downloadId != null).map(async (e) => {
-    try { const [it] = await chrome.downloads.search({ id: e.downloadId }); if (it) map.set(e.id, it); } catch { /* ignore */ }
+    try {
+      const [it] = await chrome.downloads.search({ id: e.downloadId });
+      if (isEntryDownload(e, it, chrome.runtime.id)) map.set(e.id, it);
+    } catch { /* ignore */ }
   }));
   return map;
 }
 
+export const progressText = (it) => `Downloading${it.totalBytes > 0 ? ` ${Math.round((it.bytesReceived / it.totalBytes) * 100)}%` : '\u2026'}`;
+
+// Chrome sends no event as bytes arrive, so pages call this about once a second while
+// something is downloading. It only rewrites the percentage text, leaving the rows (and
+// keyboard focus) alone. Resolves to 'active', 'changed' (a download finished or failed:
+// do a full render) or 'idle'.
+export async function tickProgress(container, entries, live) {
+  const active = entries.filter((e) => live.get(e.id)?.state === 'in_progress');
+  if (!active.length) return 'idle';
+  const fresh = await liveState(active);
+  for (const e of active) {
+    const it = fresh.get(e.id);
+    if (!it || it.state !== 'in_progress') return 'changed';
+    live.set(e.id, it);
+    const row = [...container.querySelectorAll('.row')].find((r) => r.dataset.id === e.id);
+    const el = row?.querySelector('[data-progress]');
+    if (el) el.textContent = progressText(it);
+  }
+  return 'active';
+}
+
+const THUMB_OK = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+
 export function rowHTML(e, live, { compact = false } = {}) {
   const it = live.get(e.id);
   let status = '';
-  if (it?.state === 'in_progress') status = `<span>Downloading${it.totalBytes ? ` ${Math.round((it.bytesReceived / it.totalBytes) * 100)}%` : '…'}</span>`;
-  else if (it?.state === 'interrupted' || e.state === 'interrupted') status = '<span class="missing">Failed</span>';
-  else if (it && it.exists === false) status = '<span class="missing">File missing</span>';
+  if (e.error === 'REDIRECTED') status = `<span class="missing">Failed: ${esc(failureReason(e.error))}</span>`;
+  else if (it?.state === 'in_progress') status = `<span data-progress>${progressText(it)}</span>`;
+  else if (it?.state === 'interrupted' || e.state === 'interrupted') {
+    const why = failureReason(e.error === 'REDIRECTED' ? e.error : (it?.error || e.error));   // our own verdict beats Chrome's "cancelled"
+    status = `<span class="missing">${why === 'cancelled' ? 'Cancelled' : `Failed${why ? `: ${esc(why)}` : ''}`}</span>`;
+  } else if (it && it.exists === false) status = '<span class="missing">File missing</span>';
   else if (it?.fileSize || e.bytes) status = `<span>${fmtBytes(it?.fileSize || e.bytes)}</span>`;
-  const thumb = e.thumb ? `style="background-image:url('${esc(e.thumb)}')"` : '';
+  if (e.noAudio) status += '<span class="missing">No sound</span>';
   const btn = (act, icon, label) => `<button class="btn icon small" data-act="${act}" data-id="${esc(e.id)}" title="${label}" aria-label="${label}">${ICON[icon]}</button>`;
   const actions = compact
     ? btn('copy', 'copy', 'Copy video file (paste into Discord etc.)') + btn('show', 'folder', 'Show in folder') + btn('source', 'open', 'Open original post')
     : btn('copy', 'copy', 'Copy video file (paste into Discord etc.)') + btn('play', 'play', 'Play') + btn('show', 'folder', 'Show in folder')
       + btn('source', 'open', 'Open original post') + btn('copylink', 'link', 'Copy post link') + btn('redo', 'redo', 'Download again') + btn('remove', 'trash', 'Remove from history');
   return `<div class="row" data-id="${esc(e.id)}">
-    <div class="thumb" ${thumb}>${e.thumb ? '' : ICON.film}</div>
+    <div class="thumb">${THUMB_OK.test(e.thumb || '') ? '' : ICON.film}</div>
     <div class="meta">
       <div class="title" title="${esc(e.title)}">${esc(e.title)}</div>
       <div class="sub"><span class="badge ${esc(e.site)}">${SITE_LABEL[e.site] || 'Web'}</span>${e.author ? `<span>${esc(e.author)}</span>` : ''}<span>${timeAgo(e.createdAt)}</span>${status}</div>
@@ -73,31 +104,48 @@ export function rowHTML(e, live, { compact = false } = {}) {
   </div>`;
 }
 
+// Thumbnails are applied from code, never through markup, and only if they are the
+// inline JPEGs this extension makes. Call after putting rowHTML() output on the page.
+export function applyThumbs(container, entries) {
+  const byId = new Map(entries.map((e) => [e.id, e.thumb]));
+  for (const row of container.querySelectorAll('.row')) {
+    const thumb = byId.get(row.dataset.id);
+    if (THUMB_OK.test(thumb || '')) row.querySelector('.thumb').style.backgroundImage = `url("${thumb}")`;
+  }
+}
+
 // One handler for every row button. `say(text, kind)` reports back to the page.
 // `cached` is the download item from the last render, so Play/Show run synchronously
 // inside the click (Chrome requires a user gesture for opening files).
 export async function handleAction(act, entry, say, cached) {
-  const live = cached || (entry.downloadId != null ? (await chrome.downloads.search({ id: entry.downloadId }))[0] : null);
+  let live = cached;
+  if (!live && entry.downloadId != null) {
+    const [it] = await chrome.downloads.search({ id: entry.downloadId });
+    if (isEntryDownload(entry, it, chrome.runtime.id)) live = it;
+  }
+  const ready = live?.exists && live.state === 'complete';
   switch (act) {
     case 'copy': {
       const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:copyFile', id: entry.id });
       if (r?.ok) return say('Video copied — paste it into Discord, Messages, etc.', 'ok');
-      if (r?.needsHelper) {
-        if (live?.exists) { chrome.downloads.show(entry.downloadId); return say('Copy helper not installed, so the file is shown in Finder: press ⌘C there, then paste. (Install the helper in Settings for one-click copy.)', 'err'); }
+      if (r?.needsHelper && ready) {
+        chrome.downloads.show(entry.downloadId);
+        return say('The file is shown in Finder: press ⌘C there, then paste. For one-click copy, set up the copy helper in Settings.');
       }
       return say(r?.error || 'Couldn’t copy.', 'err');
     }
-    case 'show':
-      if (live?.exists) { chrome.downloads.show(entry.downloadId); return; }
-      {
-        const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:reveal', id: entry.id }).catch(() => null);
-        if (!r?.ok) say(live?.exists === false ? 'File was moved or deleted. Use Download again.' : 'Chrome no longer tracks this file. Use Download again.', 'err');
-      }
+    case 'show': {
+      if (ready) { chrome.downloads.show(entry.downloadId); return; }
+      if (live && live.state !== 'complete') return say(live.state === 'in_progress' ? 'Still downloading.' : 'That download didn\u2019t finish. Use Download again.', 'err');
+      const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:reveal', id: entry.id }).catch(() => null);
+      if (!r?.ok) say(live?.exists === false ? 'The file was moved or deleted. Use Download again.' : (r?.error || 'Chrome no longer lists this file. Use Download again.'), 'err');
       return;
+    }
     case 'play':
-      if (live?.exists && live.state === 'complete') { chrome.downloads.open(entry.downloadId); return; }
-      return say('File isn’t available. Use Download again.', 'err');
+      if (ready) { chrome.downloads.open(entry.downloadId); return; }
+      return say(live?.state === 'in_progress' ? 'Still downloading.' : 'The file isn’t available. Use Download again.', 'err');
     case 'source':
+      if (!/^https?:\/\//i.test(entry.sourceUrl || '')) return say('This entry has no valid link.', 'err');
       chrome.tabs.create({ url: entry.sourceUrl });
       return;
     case 'copylink':
@@ -105,11 +153,21 @@ export async function handleAction(act, entry, say, cached) {
       return say('Post link copied.', 'ok');
     case 'redo': {
       say('Downloading again…');
-      const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:redownload', id: entry.id });
-      return say(r?.ok ? 'Started.' : (r?.error || 'Failed.'), r?.ok ? 'ok' : 'err');
+      let r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:redownload', id: entry.id });
+      if (r?.needsConfirm) {
+        // The video now sits on a host that wasn't agreed to before: ask here, on the extension's own page.
+        if (!window.confirm(`${r.error}\n\nDownload from ${r.host}?`)) return say('Not downloaded.');
+        r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:redownload', id: entry.id, allowHost: r.host });
+      }
+      return say(r?.ok ? `Download started${r.warning ? `. ${r.warning}` : '.'}` : (r?.error || 'Couldn’t download again.'), r?.ok ? 'ok' : 'err');
     }
     case 'remove':
       await chrome.runtime.sendMessage({ type: 'clipsnatcher:remove', ids: [entry.id] });
       return say('Removed from history (the file itself is untouched).', 'ok');
   }
+}
+
+// Run a row action and make sure a failure is shown instead of vanishing.
+export function runAction(act, entry, say, cached) {
+  return handleAction(act, entry, say, cached).catch((e) => say(e?.message || 'That didn’t work.', 'err'));
 }

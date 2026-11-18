@@ -25,12 +25,17 @@ export async function getHistory() {
   return Array.isArray(history) ? history : [];
 }
 
-// All writes go through one queue so concurrent downloads can't clobber each other.
+// Writes in one JavaScript context go through one queue so concurrent downloads can't
+// clobber each other. The queue is per context, so every history write is made by the
+// background worker; pages ask it by message instead of writing themselves.
+// Return NO_CHANGE from `fn` to skip the write.
+export const NO_CHANGE = Symbol('no change');
 let queue = Promise.resolve();
 export function mutateHistory(fn) {
   const run = queue.then(async () => {
     const list = await getHistory();
     const result = await fn(list);
+    if (result === NO_CHANGE) return undefined;
     await chrome.storage.local.set({ history: list });
     return result;
   });
@@ -38,19 +43,49 @@ export function mutateHistory(fn) {
   return run;
 }
 
-export const addEntry = (entry) => mutateHistory((list) => { list.unshift(entry); return entry; });
+export const MAX_HISTORY = 5000;   // oldest entries beyond this are dropped (files are never touched)
+export const addEntry = (entry) => mutateHistory((list) => {
+  list.unshift(entry);
+  if (list.length > MAX_HISTORY) list.length = MAX_HISTORY;
+  return entry;
+});
 
 export const updateEntry = (id, patch) => mutateHistory((list) => {
   const e = list.find((x) => x.id === id);
-  if (e) Object.assign(e, patch);
+  if (!e) return NO_CHANGE;
+  Object.assign(e, patch);
   return e;
 });
 
-export const updateByDownloadId = (downloadId, patch) => mutateHistory((list) => {
-  const e = list.find((x) => x.downloadId === downloadId);
-  if (e) Object.assign(e, patch);
-  return e;
+// True when a Chrome download item is the file this history entry was created for.
+// Chrome can reuse download IDs after its list is cleared, so the ID alone isn't enough.
+export function isEntryDownload(entry, item, extensionId) {
+  return !!item && entry.downloadId === item.id && item.byExtensionId === extensionId
+    && (!entry.dlStart || entry.dlStart === item.startTime);
+}
+
+// Applies a patch to the entry that belongs to this download. `patch` is an object, or a
+// function that is given the entry and returns one.
+// Resolves to { entry, was } (`was` = the state before the patch), or undefined if no entry matches.
+export const updateByDownload = (item, extensionId, patch) => mutateHistory((list) => {
+  const e = list.find((x) => isEntryDownload(x, item, extensionId));
+  if (!e) return NO_CHANGE;
+  const was = e.state;
+  Object.assign(e, typeof patch === 'function' ? patch(e) : patch);
+  return { entry: { ...e }, was };
 });
+
+// Short, plain reason for a Chrome download error code.
+export function failureReason(code) {
+  if (!code) return '';
+  if (code === 'USER_CANCELED') return 'cancelled';
+  if (code === 'REDIRECTED') return 'the address redirected to another site';
+  if (code === 'FILE_NO_SPACE') return 'disk is full';
+  if (/^FILE_(ACCESS_DENIED|BLOCKED|SECURITY_CHECK_FAILED|VIRUS_INFECTED)/.test(code)) return 'blocked by Chrome or the system';
+  if (/^FILE_/.test(code)) return 'couldn’t write the file';
+  if (/^(NETWORK_|SERVER_)/.test(code)) return 'network problem';
+  return 'interrupted';
+}
 
 export const removeEntries = (ids) => mutateHistory((list) => {
   const set = new Set(ids);

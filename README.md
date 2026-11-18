@@ -21,7 +21,7 @@ To update later, run `git pull` in the folder, then click the reload arrow on Cl
 bash ~/Projects/ClipSnatcher/native-helper/install.sh
 ```
 
-Then open ClipSnatcher settings and click **Check again**. To remove the helper, run `native-helper/uninstall.sh`.
+Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome asks once for permission to talk to it. To remove the helper, run `native-helper/uninstall.sh`.
 
 ## What's in this repo
 
@@ -36,7 +36,7 @@ Then open ClipSnatcher settings and click **Check again**. To remove the helper,
 ## Three ways to save a video
 
 - **Hover:** point at a video on X, Reddit or Facebook and click the **Save** button that appears in its top-right corner.
-- **Right-click:** right-click a video or a post link and choose **Save video… (ClipSnatcher)**.
+- **Right-click:** right-click a video or a post link and choose the **Save video** item marked ClipSnatcher.
 - **Paste:** click the toolbar icon (or press `Alt+Shift+V`), paste a post link, and press **Save**. If the current tab is already a post, its link is filled in for you.
 
 ## Where files go
@@ -68,6 +68,14 @@ Click the clock icon in the popup. You can search by post title, author or link,
 
 ## Privacy
 
-- The only network requests go to the site hosting the post you chose, to fetch that video and a small thumbnail.
-- Your history (titles, links, file locations and thumbnails about 5 KB each) is stored in `chrome.storage.local` in this Chrome profile. You can export it or clear it in Settings.
-- The copy helper is a small macOS script in `native-helper/clipsnatcher-helper.js`. It accepts three commands: ping, copy a video file, and show a file in Finder. Only this extension can call it, because its ID is fixed by the `key` in `manifest.json`. It has no network access.
+- Network requests go to the site hosting the post you chose, to fetch that video and a small thumbnail. If the video file sits on a different host, you are asked before anything is downloaded from it.
+- Your history (titles, links, the video's address, file locations and small thumbnails) is stored in `chrome.storage.local` in this Chrome profile. You can export it or clear it in Settings.
+- The copy helper is a small macOS script in `native-helper/clipsnatcher-helper.js`. It accepts three commands: ping, copy a video file, and show a file in Finder. Chrome only lets the extension IDs it was installed for call it, and it only accepts video files that exist on your computer. It makes no network connections.
+
+## What ClipSnatcher will not do
+
+- **Guess.** If a link or a video can't be tied to one post, it asks you to open the post instead of saving whatever video it finds first.
+- **Download from an unexpected host without asking.** A site's videos come from that site's own video host. If a post points somewhere else, you are told which host and asked first. The question is asked in the popup, where a web page can't answer it for you. "Download again" reuses a host you already agreed to. If a site's video address redirects to another host, the download is stopped and the file removed.
+- **Run in incognito windows.**
+
+Only save videos you have the right to download.

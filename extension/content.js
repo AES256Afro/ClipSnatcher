@@ -1,26 +1,47 @@
-// ClipSnatcher page helper. Does nothing until your pointer is over a video: then it shows
-// one small "Save" button. No observers on the feed, no network requests, no tracking.
+// ClipSnatcher page helper. It keeps no observers on the feed, makes no network requests
+// and does no tracking. On pointer movement it does one cheap check for a video under
+// the pointer (at most about 11 times a second) and shows one small "Save" button.
+//
+// This script runs inside web pages, so it is treated as untrusted by the rest of the
+// extension: it cannot read history or settings, and everything it sends is re-checked
+// by the background worker.
 (() => {
-  if (window.__clipsnatcherLoaded) return;
-  window.__clipsnatcherLoaded = true;
-
   const host = location.hostname;
   const SITE = /(^|\.)(x|twitter)\.com$/.test(host) ? 'x'
     : /(^|\.)reddit\.com$/.test(host) ? 'reddit'
-    : /(^|\.)facebook\.com$/.test(host) ? 'facebook' : 'web';
-  const CONTAINER = {
-    x: '[data-testid="videoComponent"], [data-testid="videoPlayer"]',
-    reddit: 'shreddit-player-2, shreddit-player, .reddit-video-player-root, [data-hook="video-player"]',
-  }[SITE] || null;
+    : /(^|\.)facebook\.com$/.test(host) ? 'facebook' : null;
+  if (!SITE) return;
+  // Tried in order, so one player always maps to the same element whatever part of it is hovered.
+  const CONTAINERS = {
+    x: ['[data-testid="videoPlayer"]', '[data-testid="videoComponent"]'],
+    reddit: ['shreddit-player-2', 'shreddit-player', '.reddit-video-player-root', '[data-hook="video-player"]'],
+  }[SITE] || [];
+  const containerOf = (el) => { for (const sel of CONTAINERS) { const c = el.closest?.(sel); if (c) return c; } return null; };
 
-  let enabled = true;
-  chrome.storage.local.get('settings').then(({ settings }) => { enabled = settings?.hoverButton !== false; });
-  chrome.storage.onChanged.addListener((c) => {
-    if (c.settings) { enabled = c.settings.newValue?.hoverButton !== false; if (!enabled) hide(); }
+  const MIN_W = 120, MIN_H = 80;      // smaller players are thumbnails, not worth a button
+  const HIDE_DELAY_MS = 450;          // grace period to move from the video onto the button
+  const HOVER_CHECK_MS = 90;
+  const RESULT_OK_MS = 2500, RESULT_ERR_MS = 7000;
+  const CONTEXT_TTL_MS = 60000;       // how long a right-click position stays valid
+
+  /* --------------------------------------------- the one setting we need */
+  // Asked for by message (this script has no access to extension storage), only once a
+  // video is actually hovered, and again after the tab has been in the background.
+  let enabled = null;   // null = not asked yet
+  let asking = null;
+  function askEnabled() {
+    asking ||= chrome.runtime.sendMessage({ type: 'clipsnatcher:settings' })
+      .then((s) => { enabled = s?.hoverButton !== false; }, () => { enabled = true; })
+      .finally(() => { asking = null; });
+    return asking;
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && enabled !== null) askEnabled().then(() => { if (!enabled) hide(); });
   });
 
   /* ------------------------------------------------------------ the button */
-  let hostEl, btn, tip, current = null, hideTimer = 0, busy = false;
+  let hostEl, btn, tip, current = null, hideTimer = 0, resultTimer = 0, busy = false;
+  let state = 'idle';        // idle | busy | ok | err
 
   function build() {
     hostEl = document.createElement('clipsnatcher-ui');
@@ -36,15 +57,17 @@
           box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.14);
           transition: background .12s; }
         button:hover { background: rgba(17,17,20,.95); }
+        button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
         button.ok { background: #1a7f37; } button.err { background: #cf222e; }
         svg { width: 15px; height: 15px; flex: none; }
         .spin { animation: s 0.8s linear infinite; } @keyframes s { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
         .tip { position: absolute; top: 36px; right: 0; width: max-content; max-width: 260px; padding: 7px 9px;
           border-radius: 8px; background: #111; color: #fff; font: 12px/1.35 -apple-system, BlinkMacSystemFont, sans-serif;
           box-shadow: 0 4px 14px rgba(0,0,0,.35); display: none; }
       </style>
       <button type="button" title="Save this video (ClipSnatcher)"></button>
-      <div class="tip"></div>`;
+      <div class="tip" role="status"></div>`;
     btn = root.querySelector('button');
     tip = root.querySelector('.tip');
     setLabel('idle');
@@ -61,47 +84,62 @@
     ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>',
     err: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4v5M8 12h0"/></svg>',
   };
-  function setLabel(state, text) {
-    btn.className = state === 'ok' ? 'ok' : state === 'err' ? 'err' : '';
-    btn.innerHTML = ICONS[state] + `<span>${{ idle: 'Save', busy: 'Saving…', ok: 'Saved', err: 'Failed' }[state]}</span>`;
+  const LABELS = { idle: 'Save', busy: 'Finding…', ok: 'Downloading', err: 'Failed' };
+
+  function setLabel(next, text) {
+    state = next;
+    btn.className = next === 'ok' || next === 'err' ? next : '';
+    btn.innerHTML = ICONS[next];
+    const span = document.createElement('span');
+    span.textContent = LABELS[next];
+    btn.appendChild(span);
     tip.textContent = text || '';
     tip.style.display = text ? 'block' : 'none';
   }
 
   function place() {
-    if (!current || !current.isConnected) return hide();
+    if (!current || !current.isConnected) return busy ? conceal() : hide();
     const r = current.getBoundingClientRect();
-    if (r.width < 120 || r.height < 80 || r.bottom < 0 || r.top > innerHeight) return hide();
+    // While a save is running the button keeps its video but isn't drawn off-screen.
+    if (r.width < MIN_W || r.height < MIN_H || r.bottom < 0 || r.top > innerHeight) return busy ? conceal() : hide();
     const top = Math.max(8, r.top + 10);
     const right = Math.min(innerWidth - 8, r.right - 10);
     hostEl.style.transform = `translate(${Math.round(right)}px, ${Math.round(top)}px) translateX(-100%)`;
     hostEl.style.display = 'block';
   }
 
+  const conceal = () => { if (hostEl) hostEl.style.display = 'none'; };
+
   function show(container) {
-    if (!enabled) return;
+    if (enabled === false) return;
+    if (enabled === null) { askEnabled().then(() => { if (enabled && videoStillThere(container)) show(container); }); return; }
     if (!hostEl) build();
     clearTimeout(hideTimer);
-    if (container !== current && !busy) setLabel('idle');
+    if (busy) return;   // the spinner stays on the video it belongs to
+    // Moving to a different video ends whatever result was showing for the last one.
+    if (container !== current) { clearTimeout(resultTimer); setLabel('idle'); }
     current = container;
     place();
   }
+  const videoStillThere = (c) => c?.isConnected;
+
   function hide() {
     if (busy) return;
     current = null;
-    if (hostEl) hostEl.style.display = 'none';
+    if (hostEl) { hostEl.style.display = 'none'; if (state !== 'idle') { clearTimeout(resultTimer); setLabel('idle'); } }
   }
   function scheduleHide() {
+    // A result (success or error) stays up for its own timer so it can be read.
+    if (state === 'ok' || state === 'err') return;
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(hide, 450);
+    hideTimer = setTimeout(hide, HIDE_DELAY_MS);
   }
 
   /* ------------------------------------------------------ finding the video */
   function videoAt(x, y) {
-    const els = document.elementsFromPoint(x, y);
-    for (const el of els) {
+    for (const el of document.elementsFromPoint(x, y)) {
       if (el === hostEl) return 'button';
-      if (CONTAINER) { const c = el.closest?.(CONTAINER); if (c) return c; }
+      const c = containerOf(el); if (c) return c;
       if (el.tagName === 'VIDEO') return el;
     }
     return null;
@@ -109,8 +147,7 @@
 
   let lastCheck = 0, pending = 0;
   document.addEventListener('mouseover', (e) => {
-    if (!enabled) return;
-    const now = performance.now();
+    if (enabled === false) return;
     const run = () => {
       lastCheck = performance.now();
       const found = videoAt(e.clientX, e.clientY);
@@ -118,7 +155,7 @@
       if (found) show(found); else if (current) scheduleHide();
     };
     clearTimeout(pending);
-    if (now - lastCheck > 90) run(); else pending = setTimeout(run, 90);
+    if (performance.now() - lastCheck > HOVER_CHECK_MS) run(); else pending = setTimeout(run, HOVER_CHECK_MS);
   }, { passive: true, capture: true });
 
   let raf = 0;
@@ -128,40 +165,55 @@
   }, { passive: true, capture: true });
 
   /* ------------------------------------------- context about the hovered video */
+  // Only ever names the post the video visibly belongs to. If that can't be told,
+  // postUrl stays empty and the user is asked to open the post, rather than guessing.
   function gather(container) {
-    const info = { site: SITE, pageUrl: location.href, postUrl: null, titleHint: document.title, index: 0, quoted: false, videoSrc: null, packaged: null };
-    const video = container?.tagName === 'VIDEO' ? container : container?.querySelector?.('video');
+    const info = { postUrl: null, titleHint: document.title, index: 0, quoted: false, videoSrc: null, packaged: null };
+    if (!container) return info;
+    const video = container.tagName === 'VIDEO' ? container : container.querySelector?.('video');
     const src = video?.currentSrc || video?.src || video?.querySelector?.('source')?.src || '';
-    if (src && !src.startsWith('blob:')) info.videoSrc = src;
+    if (/^https:/.test(src)) info.videoSrc = src;
+    const path = location.pathname + location.search;
 
     if (SITE === 'x') {
-      const article = container?.closest('article');
+      const article = container.closest('article');
       if (article) {
         const quote = container.closest('div[role="link"]');
         info.quoted = !!(quote && article.contains(quote));
         const timeLink = article.querySelector('a[href*="/status/"] time')?.closest('a');
         if (timeLink) info.postUrl = timeLink.href;
-        const scope = info.quoted ? quote : article;
-        const vids = [...scope.querySelectorAll('video')];
+        const vids = [...(info.quoted ? quote : article).querySelectorAll('video')];
         const i = video ? vids.indexOf(video) : -1;
         if (i >= 0 && vids.length > 1) info.index = i + 1;
+      } else if (/\/status\/\d+/.test(path)) {
+        info.postUrl = location.href;      // full-screen viewer of one post
       }
-      if (!info.postUrl && /\/status\/\d+/.test(location.pathname)) info.postUrl = location.href;
     } else if (SITE === 'reddit') {
-      info.packaged = container?.getAttribute?.('packaged-media-json') || null;
-      const post = container?.closest?.('shreddit-post');
-      const perm = post?.getAttribute('permalink') || container?.closest?.('.thing')?.getAttribute('data-permalink');
-      if (perm) info.postUrl = new URL(perm, location.origin).href;
-      if (post?.getAttribute('post-title')) info.titleHint = post.getAttribute('post-title');
-      if (!info.postUrl && /\/comments\//.test(location.pathname)) info.postUrl = location.href;
-    } else if (SITE === 'facebook') {
-      const sel = 'a[href*="/videos/"], a[href*="/reel/"], a[href*="/watch/?v="], a[href*="/watch?v="]';
-      let el = container;
-      for (let i = 0; i < 25 && el && !info.postUrl; i++, el = el.parentElement) {
-        const a = el.matches?.(sel) ? el : el.querySelector?.(sel);
-        if (a) info.postUrl = a.href;
+      const post = container.closest?.('shreddit-post');
+      const oldPost = container.closest?.('.thing[data-permalink]');
+      if (post || oldPost) {
+        const perm = post?.getAttribute('permalink') || oldPost?.getAttribute('data-permalink');
+        if (perm) info.postUrl = new URL(perm, location.origin).href;
+        info.packaged = container.getAttribute?.('packaged-media-json') || null;
+        if (post?.getAttribute('post-title')) info.titleHint = post.getAttribute('post-title');
+      } else if (!document.querySelector('shreddit-post') && /\/comments\/[a-z0-9]+/i.test(path)) {
+        info.postUrl = location.href;      // a layout without post elements: the page is the post
       }
-      if (/\/(videos|reel|watch)\b/.test(location.pathname + location.search)) info.postUrl = info.postUrl || location.href;
+      // A player outside every post (an ad, a recommendation) gets no post: we don't guess.
+    } else if (SITE === 'facebook') {
+      const p = location.pathname;
+      const onOneVideo = /\/videos\/(?:[^/]+\/)?\d{6,}\/?$/.test(p) || /^\/reel\/\d{6,}\/?$/.test(p)
+        || (/^\/watch\/?$/.test(p) && /^\d{6,}$/.test(new URLSearchParams(location.search).get('v') || ''));
+      const onOnePost = /\/posts\/[A-Za-z0-9]+\/?$/.test(p) || /\/permalink\/\d+\/?$/.test(p) || p === '/permalink.php' || p === '/story.php'
+        || /^\/share\/(?:[vrp]\/)?[A-Za-z0-9]+\/?$/.test(p);
+      if (onOneVideo || onOnePost) {
+        info.postUrl = location.href;      // the page itself is this one video or post
+      } else {
+        // Only a link that wraps the player itself counts. Links elsewhere in the post
+        // (its text, comments) can point at other videos.
+        const link = container.closest('a[href*="/videos/"], a[href*="/reel/"], a[href*="/watch"]');
+        if (link) info.postUrl = link.href;
+      }
     }
     return info;
   }
@@ -169,14 +221,16 @@
   async function onClick(e) {
     e.preventDefault();
     e.stopPropagation();
-    if (busy || !current) return;
+    if (!e.isTrusted) return;            // only a real click by the user counts
+    if (busy || !current || state === 'ok') return;
     busy = true;
+    clearTimeout(resultTimer);
     setLabel('busy');
     const hint = gather(current);
     let res;
     try {
-      res = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', url: hint.postUrl || hint.videoSrc || location.href, hint });
-    } catch (err) {
+      res = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint });
+    } catch {
       res = { ok: false, error: 'ClipSnatcher was updated or reloaded. Refresh this page and try again.' };
     }
     busy = false;
@@ -185,39 +239,59 @@
 
   function showResult(res) {
     if (!hostEl) build();
-    if (res?.ok) setLabel('ok', res.warning || '');
-    else setLabel('err', res?.error || 'Something went wrong.');
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => { setLabel('idle'); hide(); }, res?.ok ? 2200 : 6000);
+    clearTimeout(resultTimer);
+    const text = res?.ok ? `Download started: ${res.title || 'video'}${res.warning ? `. ${res.warning}` : ''}` : (res?.error || 'Something went wrong.');
+    setLabel(res?.ok ? 'ok' : 'err', text);
+    place();
+    // If the video has scrolled out of view, its button is hidden: use a notice instead.
+    if (!hostEl || hostEl.style.display === 'none') { setLabel('idle'); current = null; toast(text, !!res?.ok); return; }
+    resultTimer = setTimeout(() => { setLabel('idle'); hide(); }, res?.ok ? RESULT_OK_MS : RESULT_ERR_MS);
   }
 
   /* -------------------------------------------- right-click menu support */
   let lastRightClick = null;
   document.addEventListener('contextmenu', (e) => { lastRightClick = { x: e.clientX, y: e.clientY, t: Date.now() }; }, { passive: true, capture: true });
 
-  chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (sender?.id !== chrome.runtime.id) return;
     if (msg?.type === 'clipsnatcher:context') {
       let c = null;
-      if (lastRightClick && Date.now() - lastRightClick.t < 60000) {
+      if (lastRightClick && Date.now() - lastRightClick.t < CONTEXT_TTL_MS) {
         const f = videoAt(lastRightClick.x, lastRightClick.y);
         if (f && f !== 'button') c = f;
       }
-      sendResponse(c ? gather(c) : { ...gather(null), postUrl: null });
+      sendResponse({ ...gather(c), overVideo: !!c });
       return;
     }
     if (msg?.type === 'clipsnatcher:toast') {
       const r = msg.result;
-      toast(r?.ok ? `Saved: ${r.title || 'video'}` : (r?.error || 'Download failed.'), r?.ok);
+      toast(r?.ok ? `Download started: ${r.title || 'video'}${r.warning ? `. ${r.warning}` : ''}` : (r?.error || 'Download failed.'), !!r?.ok);
     }
   });
 
+  // Notices live in a closed shadow root so the page's own scripts can't read them
+  // (they can contain the title of a post from a different site).
+  let toastStack = null;
   function toast(text, ok) {
-    const t = document.createElement('clipsnatcher-toast');
-    t.style.cssText = `all:initial;position:fixed;z-index:2147483647;right:16px;bottom:16px;max-width:340px;padding:10px 14px;border-radius:10px;
-      font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#fff;background:${ok ? '#1a7f37' : '#cf222e'};
-      box-shadow:0 6px 20px rgba(0,0,0,.3);`;
+    if (!toastStack) {
+      const el = document.createElement('clipsnatcher-notice');
+      el.style.cssText = 'all:initial;position:fixed;z-index:2147483647;right:16px;bottom:16px;';
+      const root = el.attachShadow({ mode: 'closed' });
+      root.innerHTML = `<style>
+        .stack { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+        .t { max-width: 340px; padding: 10px 14px; border-radius: 10px; color: #fff;
+          font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+        .ok { background: #1a7f37; } .err { background: #b3202c; }
+      </style><div class="stack"></div>`;
+      toastStack = root.querySelector('.stack');
+      document.documentElement.appendChild(el);
+    }
+    const t = document.createElement('div');
+    t.className = 't ' + (ok ? 'ok' : 'err');
+    t.setAttribute('role', 'status');
     t.textContent = text;
-    document.documentElement.appendChild(t);
-    setTimeout(() => t.remove(), ok ? 3000 : 6000);
+    toastStack.appendChild(t);
+    setTimeout(() => t.remove(), ok ? 3500 : 8000);
   }
 })();

@@ -36,7 +36,7 @@
   <section>
     <h2>Where videos go</h2>
     <label class="field"><span>Folder inside your Downloads folder</span>
-      <input type="text" id="folder" placeholder="ClipSnatcher"></label>
+      <input type="text" id="folder" placeholder="(empty: save straight into Downloads)"></label>
     <p class="note">Files save to <span class="path" id="preview"></span>. Chrome extensions can only save inside Chrome's download location; to put the whole thing elsewhere, change "Location" in Chrome Settings &rarr; Downloads. Turn off "Ask where to save each file" there, or Chrome will ask every time.</p>
     <div class="check"><input type="checkbox" id="perSite"><label for="perSite">Separate subfolder per site (X, Reddit, Facebook)</label></div>
     <div class="check"><input type="checkbox" id="authorInName"><label for="authorInName">Start file names with the author's handle when known</label></div>
@@ -49,22 +49,23 @@
 
   <section>
     <h2>Copy helper (paste videos into Discord)</h2>
-    <p>Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that does exactly one thing: put a file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. Then &#8984;V in Discord attaches the video.</p>
+    <p>Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. It can also show that file in Finder. It accepts video files only. Then &#8984;V in Discord attaches the video.</p>
     <p><span class="pill"><span class="dot" id="helperDot"></span><span id="helperText">Checking&hellip;</span></span></p>
-    <p>To install, run this once in Terminal (no admin password needed), then click <b>Check again</b>:</p>
+    <p>To install, run this once in Terminal (no admin password needed), then click <b>Check again</b>. The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
     <pre id="installCmd"></pre>
-    <div class="buttons"><button class="btn" id="copyCmd">Copy command</button><button class="btn" id="recheck">Check again</button></div>
+    <div class="buttons"><button class="btn" id="copyCmd">Copy command</button><button class="btn primary" id="enableHelper" hidden>Switch on the copy helper</button><button class="btn" id="recheck">Check again</button></div>
+    <p class="note">Switching it on asks Chrome for permission to talk to the helper. ClipSnatcher only asks for this if you use the helper.</p>
     <p class="note">Without the helper, the Copy button shows the file in Finder instead, where &#8984;C then &#8984;V in Discord does the same thing.</p>
   </section>
 
   <section>
     <h2>Your data</h2>
-    <p>ClipSnatcher has no servers and no analytics. History (titles, links, file locations, small thumbnails) is stored only in this browser profile. The only network requests go to the site hosting the post you chose, to fetch that video.</p>
+    <p>ClipSnatcher has no servers and no analytics. History (titles, links, the video's address, file locations, small thumbnails) is stored only in this browser profile. Network requests go to the site hosting the post you chose, to fetch that video and its thumbnail. If a video is hosted somewhere else, you are asked before anything is downloaded from that host.</p>
     <p class="note" id="stats"></p>
     <div class="buttons"><button class="btn" id="export">Export history (JSON)</button><button class="btn" id="clear">Clear history</button></div>
     <p class="note">Clearing history doesn't delete any video files.</p>
   </section>
-  <div class="status" id="status"></div>
+  <div class="status" id="status" role="status"></div>
 </div>
 <script type="module" src="options.js"></script>
 </body>

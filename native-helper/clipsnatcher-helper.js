@@ -8,12 +8,11 @@
 ObjC.import('Foundation');
 ObjC.import('AppKit');
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv)$/i;
 
-function b64ToBytes(b64) {
-  const s = $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
-  return s;
+function dataFromBase64(b64) {
+  return $.NSData.alloc.initWithBase64EncodedStringOptions(b64, 0);
 }
 
 function readMessage() {
@@ -33,7 +32,7 @@ function writeMessage(obj) {
   const data = json.dataUsingEncoding($.NSUTF8StringEncoding);
   const n = data.length;
   const head = btoaBytes([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255]);
-  const out = $.NSMutableData.dataWithData(b64ToBytes(head));
+  const out = $.NSMutableData.dataWithData(dataFromBase64(head));
   out.appendData(data);
   $.NSFileHandle.fileHandleWithStandardOutput.writeData(out);
 }
@@ -57,20 +56,25 @@ function btoaBytes(bytes) {
   return s;
 }
 
+// Returns { error } or { path }: the real location of an existing video file.
+// Shortcuts (symlinks) are followed first, so a link named "x.mp4" that points at
+// some other kind of file is refused.
 function checkPath(p) {
-  if (typeof p !== 'string' || !p.startsWith('/')) return 'Bad path.';
-  if (!VIDEO_EXT.test(p)) return 'Only video files can be copied.';
+  if (typeof p !== 'string' || !p.startsWith('/') || p.length > 4096) return { error: 'Bad path.' };
+  if (/[\u0000-\u001f\u007f]/.test(p)) return { error: 'Bad path.' };
+  const real = $(p).stringByResolvingSymlinksInPath.js;
+  if (!VIDEO_EXT.test(real)) return { error: 'Only video files can be copied.' };
   const isDir = Ref();
-  if (!$.NSFileManager.defaultManager.fileExistsAtPathIsDirectory(p, isDir) || isDir[0]) return 'File not found. It may have been moved or deleted.';
-  return null;
+  if (!$.NSFileManager.defaultManager.fileExistsAtPathIsDirectory(real, isDir) || isDir[0]) return { error: 'File not found. It may have been moved or deleted.' };
+  return { path: real };
 }
 
 function handle(msg) {
   if (!msg || typeof msg !== 'object') return { ok: false, error: 'Bad message.' };
   if (msg.action === 'ping') return { ok: true, version: VERSION };
-  const err = checkPath(msg.path);
-  if (err) return { ok: false, error: err };
-  const url = $.NSURL.fileURLWithPath(msg.path);
+  const checked = checkPath(msg.path);
+  if (checked.error) return { ok: false, error: checked.error };
+  const url = $.NSURL.fileURLWithPath(checked.path);
   if (msg.action === 'copyFile') {
     const pb = $.NSPasteboard.generalPasteboard;
     pb.clearContents;
