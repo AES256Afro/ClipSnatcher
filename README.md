@@ -46,6 +46,9 @@ Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome 
 | `extension/lib/ui.js` | History rows, the More menu and row actions, shared by the popup and history page |
 | `native-helper/` | Optional macOS clipboard helper and its install/uninstall scripts |
 | `native-helper/windows/` | The same helper for Windows (a PowerShell script) and its install/uninstall scripts |
+| `test/` | Automated tests (`npm test`) |
+| `browser-tests/` | Checks in real Chrome, with local stand-ins for Reddit and an outside host (`npm run test:browser`) |
+| `docs/` | The audit plan and the handoff for work on Windows |
 
 ## Three ways to save a video
 
@@ -116,9 +119,10 @@ The extension has no build step: `extension/` is loaded into Chrome as it is. No
 npm test              # the automated tests
 npm run check         # every file parses, the manifest is valid, versions match
 npm run build         # makes dist/clipsnatcher-<version>.zip for the Chrome Web Store
+npm run test:browser  # 81 checks in a throwaway, invisible Chrome (needs Chrome, OpenSSL and internet)
 ```
 
-GitHub runs all three on every push, and runs the tests again on Windows, where the Windows copy helper's tests run too. One of those tests checks the real clipboard, so it is off unless you ask for it (in PowerShell: `$env:CLIPSNATCHER_CLIPBOARD_TEST = 1; npm test`); it replaces whatever you had copied.
+GitHub runs the first three on every push, and runs the tests again on Windows, where the Windows copy helper's tests run too. One of those tests checks the real clipboard, so it is off unless you ask for it (in PowerShell: `$env:CLIPSNATCHER_CLIPBOARD_TEST = 1; npm test`); it replaces whatever you had copied. The browser checks run locally; see `browser-tests/run.mjs`.
 
 ### Releasing a new version
 

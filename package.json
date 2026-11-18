@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.mjs",
-    "build": "bash scripts/build-store-zip.sh"
+    "build": "bash scripts/build-store-zip.sh",
+    "test:browser": "node browser-tests/run.mjs"
   },
   "engines": {
     "node": ">=20.3"
