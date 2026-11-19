@@ -24,6 +24,23 @@
   const RESULT_OK_MS = 2500, RESULT_ERR_MS = 7000;
   const CONTEXT_TTL_MS = 60000;       // how long a right-click position stays valid
 
+  /* ------------------------------------------- after an extension update */
+  // When ClipSnatcher is updated or reloaded, this copy loses its link to the extension
+  // but keeps running in the page, and the background worker starts a fresh copy in open
+  // tabs. A disconnected copy removes its button and stops reacting, so the new one takes
+  // over without the page being refreshed. The page can send the takeover event too, but
+  // a copy that is still connected ignores it.
+  let retired = false;
+  const connected = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+  function retire() {
+    if (retired) return;
+    retired = true;
+    clearTimeout(hideTimer); clearTimeout(resultTimer); clearTimeout(pending);
+    hostEl?.remove(); hostEl = null; current = null;
+  }
+  const checkConnected = () => { if (!retired && !connected()) retire(); return !retired; };
+  document.addEventListener('clipsnatcher:takeover', checkConnected);
+
   /* --------------------------------------------- the one setting we need */
   // Asked for by message (this script has no access to extension storage), only once a
   // video is actually hovered, and again after the tab has been in the background.
@@ -36,6 +53,7 @@
     return asking;
   }
   document.addEventListener('visibilitychange', () => {
+    if (!checkConnected()) return;
     if (!document.hidden && enabled !== null) askEnabled().then(() => { if (!enabled) hide(); });
   });
 
@@ -167,7 +185,7 @@
 
   let lastCheck = 0, pending = 0;
   document.addEventListener('mouseover', (e) => {
-    if (enabled === false) return;
+    if (enabled === false || !checkConnected()) return;
     const run = () => {
       lastCheck = performance.now();
       const found = videoAt(e.clientX, e.clientY);
@@ -180,7 +198,7 @@
 
   let raf = 0;
   addEventListener('scroll', () => {
-    if (!current || raf) return;
+    if (!current || raf || retired) return;
     raf = requestAnimationFrame(() => { raf = 0; place(); });
   }, { passive: true, capture: true });
 
@@ -252,7 +270,7 @@
     if (!e.isTrusted) return;            // only a real click by the user counts
     const video = current;
     const job = jobOf(video);
-    if (!video || job?.state === 'busy' || job?.state === 'ok') return;
+    if (!video || job?.state === 'busy' || job?.state === 'ok' || !checkConnected()) return;
     const force = job?.state === 'dup';     // told it was saved before, and clicked again
     const clip = clipOf(video);
     jobs.set(video, { state: 'busy', clip });
@@ -261,8 +279,9 @@
     let res;
     try {
       res = await chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint });
-    } catch {
-      res = { ok: false, error: 'ClipSnatcher was updated or reloaded. Refresh this page and try again.' };
+    } catch (err) {
+      // Only blame an update when the link to the extension is really gone.
+      res = { ok: false, error: connected() ? `ClipSnatcher could not start the save (${err?.message || err}). Try again.` : 'ClipSnatcher was updated or reloaded. Refresh this page and try again.' };
     }
     const ok = !!res?.ok;
     if (res?.duplicate) {
@@ -282,7 +301,7 @@
 
   /* -------------------------------------------- right-click menu support */
   let lastRightClick = null;
-  document.addEventListener('contextmenu', (e) => { lastRightClick = { x: e.clientX, y: e.clientY, t: Date.now() }; }, { passive: true, capture: true });
+  document.addEventListener('contextmenu', (e) => { if (retired) return; lastRightClick = { x: e.clientX, y: e.clientY, t: Date.now() }; }, { passive: true, capture: true });
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (sender?.id !== chrome.runtime.id) return;
@@ -330,4 +349,7 @@
     setTimeout(() => t.remove(), NOTICE_MS[kind] || 5000);
     return t;
   }
+
+  // Tell any older, disconnected copy in this page to step aside.
+  document.dispatchEvent(new CustomEvent('clipsnatcher:takeover'));
 })();

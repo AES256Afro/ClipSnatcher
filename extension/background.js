@@ -59,7 +59,23 @@ chrome.runtime.onInstalled.addListener((details) => {
   });
   if (details.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
   housekeeping(true);
+  if (details.reason === 'install' || details.reason === 'update') reattachPages();
 });
+
+// Chrome only adds the page script to pages loaded after an install or update. Tabs that
+// were already open (Facebook and X rarely reload) would keep a copy that can no longer
+// reach the extension, so a fresh copy is added to them now; the old one steps aside.
+async function reattachPages() {
+  const scripts = chrome.runtime.getManifest().content_scripts || [];
+  for (const cs of scripts) {
+    let tabs = [];
+    try { tabs = await chrome.tabs.query({ url: cs.matches }); } catch { continue; }
+    for (const tab of tabs) {
+      if (tab.discarded || tab.id == null) continue;
+      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: cs.js }).catch(() => {});
+    }
+  }
+}
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const tabId = tab?.id ?? null;
