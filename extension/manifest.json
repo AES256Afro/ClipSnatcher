@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ClipSnatcher",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Save videos from X, Reddit and Facebook posts. Keeps a local, searchable history. No tracking, no servers.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqA+D2lg2qDDiOD71OOYXpelnhjH3e6kCxPIISJ+eVWOB9NwVzE65S2pozYtEnQkeBek33Vt8H2g0BwLf0yjTM7r19v7nCcuXYEt3Axpu60NGl3fmcL0w4XBM+q2iPhxTje8w28kpIdNQnuSmn3VT5r6IegCH8cJDJUm9Q93y4MmKnP5n1g+8UfIuqsOV/KkECLC2kxJByD/cu3NujeUjnPA7gm1/HzoSoUAKT1HcQwhrRAMMsdRs8EA0JruLQSKKzIF1ILbe1TN5IJRwxkeHz2lQZsdh+ccOnt3BRet+00Rmh85z2eKTjrBmH+BRNIm/2BgZc8fZ/M8F4blnRmraOQIDAQAB",
   "minimum_chrome_version": "116",
