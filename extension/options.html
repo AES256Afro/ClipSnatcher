@@ -25,6 +25,8 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.on { background: var(--ok); }
   .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  /* Helper wording for the system Settings is open on; both stay hidden until it is known. */
+  body:not([data-os="mac"]) .mac-only, body:not([data-os="win"]) .win-only { display: none; }
   kbd { font: inherit; font-size: 12.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--bg-soft); }
 </style>
 </head>
@@ -64,17 +66,20 @@
 
   <section id="helperSection">
     <h2>Copy helper (paste videos into Discord)</h2>
-    <div id="helperMac">
-      <p>Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. It can also show that file in Finder. It accepts video files only.</p>
+    <div id="helperOn">
+      <p class="mac-only">Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. It can also show that file in Finder. It accepts video files only.</p>
+      <p class="win-only">Browsers can't put a video file on the clipboard by themselves. The optional helper is a small Windows PowerShell script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing Ctrl+C on it in File Explorer. It can also show that file in File Explorer. It accepts video files only.</p>
       <p><span class="pill"><span class="dot" id="helperDot"></span><span id="helperText">Checking&hellip;</span></span></p>
-      <p>To install, <a href="https://github.com/AES256Afro/ClipSnatcher#install-about-1-minute" target="_blank" rel="noopener">get the project from GitHub</a>, then run this once in Terminal (no admin password needed). The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
+      <p class="mac-only">To install, <a href="https://github.com/AES256Afro/ClipSnatcher#install-about-1-minute" target="_blank" rel="noopener">get the project from GitHub</a>, then run this once in Terminal (no admin password needed). The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
+      <p class="win-only">To install, <a href="https://github.com/AES256Afro/ClipSnatcher#install-about-1-minute" target="_blank" rel="noopener">get the project from GitHub</a>, then run this once in PowerShell (no admin rights needed). The command assumes the project is in <span class="path">Projects\ClipSnatcher</span> in your user folder; change the path if you put it somewhere else.</p>
       <pre id="installCmd"></pre>
       <div class="check"><input type="checkbox" id="autoCopy"><label for="autoCopy">Copy each video to the clipboard as soon as it finishes saving<br><span class="note">Then paste straight into Discord. Needs the copy helper (set up above). If you save several at once, the last one to finish is on the clipboard.</span></label></div>
       <div class="buttons"><button class="btn" id="copyCmd" type="button">Copy command</button><button class="btn primary" id="enableHelper" type="button" hidden>Switch on the copy helper</button><button class="btn" id="recheck" type="button">Check again</button></div>
-      <p class="note">Switching it on asks Chrome for permission to talk to the helper. ClipSnatcher only asks for this if you use the helper. Without it, the Copy button shows the file in Finder instead, where &#8984;C then &#8984;V in Discord does the same thing.</p>
+      <p class="note mac-only">Switching it on asks Chrome for permission to talk to the helper. ClipSnatcher only asks for this if you use the helper. Without it, the Copy button shows the file in Finder instead, where &#8984;C then &#8984;V in Discord does the same thing.</p>
+      <p class="note win-only">Switching it on asks Chrome for permission to talk to the helper. ClipSnatcher only asks for this if you use the helper. Without it, the Copy button shows the file in File Explorer instead, where Ctrl+C then Ctrl+V in Discord does the same thing.</p>
     </div>
     <div id="helperOther" hidden>
-      <p>The one-click copy helper is available on macOS only. On this computer, use <b>Show in folder</b> on a saved video, copy the file there, and paste it into Discord.</p>
+      <p>The one-click copy helper is available on macOS and Windows. On this computer, use <b>Show in folder</b> on a saved video, copy the file there, and paste it into Discord.</p>
     </div>
   </section>
 

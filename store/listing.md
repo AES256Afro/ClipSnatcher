@@ -13,6 +13,10 @@ Field names are from memory of the Developer Dashboard and may be worded slightl
    ```bash
    bash native-helper/install.sh <store-extension-id>
    ```
+   On Windows, in PowerShell:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File native-helper\windows\install.ps1 <store-extension-id>
+   ```
    To keep using the unpacked copy as well, pass both IDs.
 3. Images are in this folder: `screenshot-1-history.jpg`, `screenshot-2-filter.jpg`, `screenshot-3-popup.jpg` (1280×800) and `promo-small-440x280.jpg`. The sample entries in them are made up.
 
@@ -47,7 +51,7 @@ PRIVATE BY DESIGN
 • No servers: the extension talks only to the site hosting the post you chose
 • Your history is stored only in your browser and can be exported or cleared at any time
 
-OPTIONAL: COPY A VIDEO TO THE CLIPBOARD (macOS)
+OPTIONAL: COPY A VIDEO TO THE CLIPBOARD (macOS and Windows)
 An optional helper, installed separately from the project's GitHub page, lets you copy a saved video file and paste it into chat apps.
 
 Only save videos you have the right to download. ClipSnatcher does not work with YouTube.

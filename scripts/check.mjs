@@ -24,6 +24,21 @@ for (const file of [...walk(path.join(root, 'scripts'), '.sh'), ...walk(path.joi
   try { execFileSync('bash', ['-n', file], { stdio: 'pipe' }); } catch (e) { problems.push(`${rel(file)} does not parse:\n${e.stderr}`); }
 }
 
+// The Windows helper's scripts. Windows PowerShell 5.1 reads a script without a byte-order
+// mark as ANSI, and cmd.exe uses the console code page, so they must stay plain ASCII.
+const ps1 = walk(path.join(root, 'native-helper'), '.ps1');
+for (const file of [...ps1, ...walk(path.join(root, 'native-helper'), '.cmd')]) {
+  if (/[^\x00-\x7f]/.test(fs.readFileSync(file, 'utf8'))) problems.push(`${rel(file)} has non-ASCII characters, which Windows would misread`);
+}
+// Parsed with whichever PowerShell is installed: Windows has powershell, GitHub's Linux runners have pwsh.
+const pwsh = ['pwsh', 'powershell'].find((s) => { try { execFileSync(s, ['-NoProfile', '-Command', 'exit 0'], { stdio: 'pipe' }); return true; } catch { return false; } });
+if (!pwsh && ps1.length) console.warn('! PowerShell not found, so the .ps1 files were not parsed');
+for (const file of pwsh ? ps1 : []) {
+  const parse = `$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('${file.replace(/'/g, "''")}', [ref]$null, [ref]$e); $e | ForEach-Object { $_.ToString() }`;
+  const errors = execFileSync(pwsh, ['-NoProfile', '-Command', parse], { encoding: 'utf8' }).trim();
+  if (errors) problems.push(`${rel(file)} does not parse:\n${errors}`);
+}
+
 let manifest;
 try { manifest = JSON.parse(fs.readFileSync(path.join(root, 'extension/manifest.json'), 'utf8')); } catch (e) { problems.push(`extension/manifest.json is not valid JSON: ${e.message}`); }
 if (manifest) {

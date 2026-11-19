@@ -21,3 +21,15 @@ jobs:
         run: node --test
       - name: Store zip builds
         run: bash scripts/build-store-zip.sh
+
+  windows:
+    # The Windows copy helper's tests only run here; the rest run again on Windows too.
+    # (The clipboard test stays off: it needs CLIPSNATCHER_CLIPBOARD_TEST=1 and a desktop.)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tests
+        run: node --test

@@ -1,6 +1,6 @@
 # ClipSnatcher Privacy Policy
 
-Last updated: November 17, 2026
+Last updated: November 18, 2026
 
 ClipSnatcher is a browser extension that saves videos from social media posts to your computer. It does not collect, transmit, sell or share any personal data. There are no accounts, no analytics and no servers operated by this project.
 
@@ -48,9 +48,9 @@ No request is ever made to a server belonging to this project, because there isn
 
 ClipSnatcher does not run in incognito windows.
 
-## Optional copy helper (macOS)
+## Optional copy helper (macOS and Windows)
 
-The optional helper is a small script you install yourself from this repository. It can do three things: confirm it is installed, copy a video file you saved to the clipboard, and show that file in Finder. It makes no network connections. Chrome only lets the extension IDs it was installed for call it, and it only accepts video files that exist on your computer.
+The optional helper is a small script you install yourself from this repository. It can do three things: confirm it is installed, copy a video file you saved to the clipboard, and show that file in Finder or File Explorer. It makes no network connections. Chrome only lets the extension IDs it was installed for call it, and it only accepts video files that exist on your computer.
 
 ## Changes
 

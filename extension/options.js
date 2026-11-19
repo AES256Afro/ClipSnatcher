@@ -28,7 +28,7 @@ async function init() {
   preview();
   stats();
   setUpHelper();
-  const NAMES = { _execute_action: 'Open ClipSnatcher', 'save-video': 'Save the video in the current tab', 'copy-last': 'Copy the last saved video (macOS, needs the helper)' };
+  const NAMES = { _execute_action: 'Open ClipSnatcher', 'save-video': 'Save the video in the current tab', 'copy-last': 'Copy the last saved video (macOS and Windows, needs the helper)' };
   chrome.commands.getAll().then((all) => {
     $('shortcutList').replaceChildren(...all.filter((c) => NAMES[c.name]).map((c) => {
       const li = document.createElement('li');
@@ -91,10 +91,15 @@ const HELPER_PERMISSION = { permissions: ['nativeMessaging'] };
 
 async function setUpHelper() {
   const { os } = await chrome.runtime.getPlatformInfo().catch(() => ({ os: 'mac' }));
-  $('helperMac').hidden = os !== 'mac';
-  $('helperOther').hidden = os === 'mac';
-  if (os !== 'mac') return;
-  $('installCmd').textContent = 'bash ~/Projects/ClipSnatcher/native-helper/install.sh' + (chrome.runtime.id === DEV_ID ? '' : ' ' + chrome.runtime.id);
+  const supported = os === 'mac' || os === 'win';
+  document.body.dataset.os = os;
+  $('helperOn').hidden = !supported;
+  $('helperOther').hidden = supported;
+  if (!supported) return;
+  const ids = chrome.runtime.id === DEV_ID ? '' : ' ' + chrome.runtime.id;
+  $('installCmd').textContent = os === 'win'
+    ? 'powershell -ExecutionPolicy Bypass -File "$HOME\\Projects\\ClipSnatcher\\native-helper\\windows\\install.ps1"' + ids
+    : 'bash ~/Projects/ClipSnatcher/native-helper/install.sh' + ids;
   checkHelper();
 }
 

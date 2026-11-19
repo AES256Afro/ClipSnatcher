@@ -42,7 +42,7 @@ export const DEFAULT_SETTINGS = {
   authorInName: true,      // prefix filenames with @author when known
   quality: 'best',         // 'best' | 'smaller' (720p or less) | 'fit' (under maxMB)
   maxMB: 10,               // size limit for 'fit', e.g. a chat app's upload limit
-  autoCopy: false,         // copy each video to the clipboard when it finishes (macOS helper)
+  autoCopy: false,         // copy each video to the clipboard when it finishes (copy helper)
 };
 
 export async function getSettings() {

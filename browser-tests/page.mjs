@@ -72,7 +72,7 @@ check('nothing readable by the page was written into it', r === 'none' || r === 
 r = await cs(`chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint: { videoSrc: 'https://video.twimg.com/ext_tw_video/1585341912877146112/pu/vid/480x270/6tarM2TjLH1Ahh90.mp4?tag=14', titleHint: 'Fake X page' } })`);
 await wait(5000);
 const own = (await evalIn(ext, `chrome.storage.local.get('history').then(h => (h.history || []).filter(e => /6tarM2TjLH1Ahh90/.test(e.mediaUrl || '')).map(e => ({ site: e.site, state: e.state, path: e.path })))`)) || [];
-check('a video saved by its own file address from an X page is filed under X', r?.ok === true && own.length === 1 && own[0].site === 'x' && own[0].state === 'complete' && /ClipSnatcher\/X\//.test(own[0].path || ''), JSON.stringify([r, own]));
+check('a video saved by its own file address from an X page is filed under X', r?.ok === true && own.length === 1 && own[0].site === 'x' && own[0].state === 'complete' && /ClipSnatcher[\\/]X[\\/]/.test(own[0].path || ''), JSON.stringify([r, own]));
 r = await cs(`chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint: { postUrl: 'https://x.com/elonmusk/status/1585341984679469056' } })`);
 check('a page asking to save a post already saved hears only "Saved before.", nothing about the history', r?.duplicate === true && r.error === 'Saved before.' && !('entryId' in r) && !('title' in r), JSON.stringify(r));
 r = await cs(`Promise.all(Array.from({ length: 16 }, () => chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint: { postUrl: 'https://x.com/home' } }))).then((all) => all.filter((x) => /Too many/.test(x?.error || '')).length)`);
