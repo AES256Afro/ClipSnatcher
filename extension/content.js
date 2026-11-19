@@ -233,6 +233,14 @@
         // (its text, comments) can point at other videos.
         const link = container.closest('a[href*="/videos/"], a[href*="/reel/"], a[href*="/watch"]');
         if (link) info.postUrl = link.href;
+        else {
+          // Regular video posts in the feed have no such link, but the player carries the
+          // video's own ID. Only digits are taken from the page; the address is built here.
+          // The holder must contain just this one video, so the ID can't be a wider post's.
+          const holder = container.closest('[data-video-id]');
+          const vid = holder?.getAttribute('data-video-id') || '';
+          if (/^\d{6,20}$/.test(vid) && holder.querySelectorAll('video').length === 1) info.postUrl = `https://www.facebook.com/watch/?v=${vid}`;
+        }
       }
     }
     return info;

@@ -79,7 +79,7 @@ const media = {
 };
 const server = startFakeSites({ key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile), media, port: FAKE_PORT });
 
-const MAP = ['x.com', 'www.reddit.com', 'v.redd.it', 'evil.example'].map((h) => `MAP ${h} 127.0.0.1:${FAKE_PORT}`).join(', ');
+const MAP = ['x.com', 'www.reddit.com', 'v.redd.it', 'evil.example', 'www.facebook.com', 'video-hou1-1.xx.fbcdn.net'].map((h) => `MAP ${h} 127.0.0.1:${FAKE_PORT}`).join(', ');
 const results = [];
 for (const suite of wanted) {
   if (!SUITES.includes(suite)) { console.error(`Unknown suite "${suite}". Choose from: ${SUITES.join(', ')}`); process.exitCode = 2; continue; }

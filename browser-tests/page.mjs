@@ -78,6 +78,41 @@ check('a page asking to save a post already saved hears only "Saved before.", no
 r = await cs(`Promise.all(Array.from({ length: 16 }, () => chrome.runtime.sendMessage({ type: 'clipsnatcher:download', hint: { postUrl: 'https://x.com/home' } }))).then((all) => all.filter((x) => /Too many/.test(x?.error || '')).length)`);
 check('a page flooding save requests is rate-limited', r >= 3, String(r));
 check('no script errors from the extension on the page', errorsFor(ts).filter((e) => e.includes('chrome-extension')).length === 0, errorsFor(ts).join('\n'));
+// --- Facebook home feed: regular video posts have no link around the player, only the
+// video's id on a wrapper. Ads have neither; a wrapper with two videos is ambiguous.
+{
+  const fbTab = (await send('Target.createTarget', { url: 'about:blank' })).result.targetId;
+  const fs2 = await attach(fbTab);
+  await send('Page.enable', {}, fs2);
+  await send('Emulation.setDeviceMetricsOverride', { width: 900, height: 700, deviceScaleFactor: 1, mobile: false }, fs2);
+  await send('Page.navigate', { url: 'https://www.facebook.com/' }, fs2);
+  await wait(2500);
+  const fbMove = (x, y) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }, fs2);
+  const fbPage = (expr) => evalIn(fs2, expr);
+  const clickSaveOver = async (x, y) => {
+    await fbMove(5, 690); await wait(600);
+    await fbMove(x, y); await wait(300); await fbMove(x + 10, y + 10); await wait(900);
+    const b = await fbPage(`(() => { const el = document.querySelector('clipsnatcher-ui'); if (!el || el.style.display !== 'block') return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 15) }; })()`);
+    if (!b) return false;
+    await fbMove(b.x, b.y); await wait(150);
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: b.x, y: b.y, button: 'left', clickCount: 1 }, fs2);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: b.x, y: b.y, button: 'left', clickCount: 1 }, fs2);
+    return true;
+  };
+  const before = (await history()).length;
+  let clicked = await clickSaveOver(240, 120);
+  await wait(6000);
+  let h = await history();
+  const fbSaved = h.find((e) => e.site === 'facebook');
+  check('Facebook feed: Save on a regular video post (no link, only the video id) saves that video', clicked && !!fbSaved && fbSaved.state === 'complete' && /Fake Facebook clip 5471242699683085/.test(fbSaved.title) && fbSaved.src === 'https://www.facebook.com/reel/5471242699683085/', JSON.stringify([clicked, fbSaved]));
+  const afterFirst = h.length;
+  clicked = await clickSaveOver(240, 350);
+  await wait(3000);
+  check('Facebook feed: an ad (no link, no id) saves nothing', clicked && (await history()).length === afterFirst, JSON.stringify([clicked, (await history()).length, afterFirst]));
+  clicked = await clickSaveOver(130, 550);
+  await wait(3000);
+  check('Facebook feed: a wrapper holding two videos is not guessed at', clicked && (await history()).length === afterFirst && afterFirst === before + 1, JSON.stringify([clicked, (await history()).length, afterFirst, before]));
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
 ws.close();

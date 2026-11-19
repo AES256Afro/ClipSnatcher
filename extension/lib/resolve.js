@@ -506,7 +506,11 @@ function titleText(html) {
   return '';
 }
 
-const FB_NEAR = 20000;   // a video address must sit this close (in characters) to the video's ID
+// A video address must sit this close (in characters) to the video's ID. Facebook puts the
+// next reel's addresses in the same page; measured on real pages, the requested video's
+// addresses were within about 2,100 characters of its ID and the next reel's were 11,000+
+// away, so anything further than this is treated as belonging to another video.
+const FB_NEAR = 6000;
 const FB_SAME = 4000;    // addresses this close together belong to the same video (its HD and SD)
 
 // Groups the addresses found in a page into distinct videos. Addresses that sit close
@@ -537,24 +541,36 @@ function oneVideo(items) {
   return [...perRank.values()].every((urls) => urls.size === 1);
 }
 
+// A progressive_urls entry failed if its "failure_reason" is anything but null. The field
+// may come before "metadata" (checked on the matched text) or after it: the rest of the
+// metadata object, its closing brace, then the rest of the entry.
+const fbFailed = (text) => /"failure_reason":(?!null)/.test(text);
+const fbFailedAfter = (html, at) => /^[^{}]*\}[^{}]*?"failure_reason":(?!null)/.test(html.slice(at, at + 2000));
+
 // Finds the address of one video in a Facebook page.
 // Returns { url }, { ambiguous: true } when it can't tell which video is meant, or null.
 export function findFbVideoUrl(html, id) {
   // Best quality first. Only JSON fields are read; free text can't imitate them
   // because Facebook escapes double quotes inside strings.
+  // Logged-out pages use the browser_native_* and playable_url* fields; pages for a
+  // logged-in user list "progressive_urls", each with a quality label and a failure reason
+  // (entries that failed are skipped). [^{}] keeps a match inside one JSON object.
+  // Each pattern: [regex, rank of a match (lower is better; -1 skips it)].
   const patterns = [
-    /"browser_native_hd_url":"([^"]+)"/g,
-    /"playable_url_quality_hd":"([^"]+)"/g,
-    /"browser_native_sd_url":"([^"]+)"/g,
-    /"playable_url":"([^"]+)"/g,
+    [/"browser_native_hd_url":"([^"]+)"/g, () => 0],
+    [/"progressive_url":"([^"]+)"([^{}]*?)"metadata":\{[^{}]*?"quality":"(HD|SD)"/g, (m) => (fbFailed(m[2]) || fbFailedAfter(html, m.index + m[0].length) ? -1 : m[3] === 'HD' ? 1 : 4)],
+    [/"playable_url_quality_hd":"([^"]+)"/g, () => 2],
+    [/"browser_native_sd_url":"([^"]+)"/g, () => 3],
+    [/"playable_url":"([^"]+)"/g, () => 5],
   ];
   const found = [];
-  patterns.forEach((re, rank) => {
+  for (const [re, rankOf] of patterns) {
     for (const m of html.matchAll(re)) {
-      const url = canonicalUrl(unescapeJsonString(m[1]));
+      const rank = rankOf(m);
+      const url = rank >= 0 && canonicalUrl(unescapeJsonString(m[1]));
       if (url) found.push({ url, pos: m.index, rank });
     }
-  });
+  }
   if (!found.length) return null;
   const best = (items) => [...items].sort((x, y) => x.rank - y.rank)[0].url;
 
@@ -583,10 +599,13 @@ function withQualities(items) {
   return { url: urls[0], qualities: urls };
 }
 
+const FB_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+
 async function resolveFacebook(url, hint) {
   const many = 'That Facebook page shows many posts. Open the video itself (a /videos/ or /reel/ link), then save from there.';
   if (!fbIsSinglePost(url)) throw new ResolveError(many);
-  const res = await net(url, { ...WITH_LOGIN, redirect: 'follow' }, 'Facebook');
+  // Facebook leaves the video addresses out of the page unless the request asks for HTML.
+  const res = await net(url, { ...WITH_LOGIN, redirect: 'follow', headers: { Accept: FB_ACCEPT } }, 'Facebook');
   const finalUrl = canonicalUrl(res.url || url) || '';
   if (detectSite(finalUrl) !== 'facebook') throw new ResolveError('Facebook sent that link to another site, so it can’t be saved.');
   let finalPath = '';
