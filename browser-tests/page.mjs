@@ -14,7 +14,7 @@ const attach = async (targetId) => { const s = (await send('Target.attachToTarge
 const errorsFor = (s) => events.filter((e) => e.sessionId === s && (e.method === 'Runtime.exceptionThrown' || (e.method === 'Runtime.consoleAPICalled' && e.params.type === 'error'))).map((e) => JSON.stringify(e.params).slice(0, 300));
 await send('Extensions.loadUnpacked', { path: process.env.CS_EXT_DIR });
 await wait(1500);
-const ext = await attach((await send('Target.createTarget', { url: `chrome-extension://${EXT}/history.html` })).result.targetId);
+let ext = await attach((await send('Target.createTarget', { url: `chrome-extension://${EXT}/history.html` })).result.targetId);
 await wait(800);
 const history = () => evalIn(ext, `chrome.storage.local.get('history').then(h => (h.history || []).map(e => ({ title: e.title, site: e.site, state: e.state, src: e.sourceUrl })))`);
 // seed one entry so there is something for a page to try to steal or delete
@@ -112,6 +112,20 @@ check('no script errors from the extension on the page', errorsFor(ts).filter((e
   clicked = await clickSaveOver(130, 550);
   await wait(3000);
   check('Facebook feed: a wrapper holding two videos is not guessed at', clicked && (await history()).length === afterFirst && afterFirst === before + 1, JSON.stringify([clicked, (await history()).length, afterFirst, before]));
+
+  // The extension is updated while this tab stays open (Facebook rarely reloads). The tab's
+  // old page script can no longer reach the extension; a fresh one must take over.
+  await send('Extensions.loadUnpacked', { path: process.env.CS_EXT_DIR });
+  await wait(3000);
+  ext = await attach((await send('Target.createTarget', { url: `chrome-extension://${EXT}/history.html` })).result.targetId);
+  await wait(800);
+  await evalIn(ext, `chrome.storage.local.set({ history: [] })`);   // so the click below is a fresh save, not "Saved before."
+  const fbErrorsBefore = errorsFor(fs2).length;
+  clicked = await clickSaveOver(240, 120);
+  await wait(6000);
+  check('after an update, Save works in a tab that was open before it, without a refresh', clicked && (await history()).some((e) => e.site === 'facebook' && e.state === 'complete'), JSON.stringify([clicked, await history()]));
+  check('...and only one Save button is left on the page', (await fbPage(`document.querySelectorAll('clipsnatcher-ui').length`)) === 1);
+  check('...with no script errors from the old copy', errorsFor(fs2).slice(fbErrorsBefore).filter((e) => e.includes('chrome-extension')).length === 0, errorsFor(fs2).slice(fbErrorsBefore).join('\n'));
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

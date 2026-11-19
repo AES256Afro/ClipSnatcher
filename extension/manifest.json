@@ -13,7 +13,8 @@
     "storage",
     "unlimitedStorage",
     "contextMenus",
-    "offscreen"
+    "offscreen",
+    "scripting"
   ],
   "optional_permissions": [
     "nativeMessaging"

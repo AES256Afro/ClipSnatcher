@@ -2,6 +2,11 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
+## Unreleased
+
+- **No more "Refresh this page" after an update.** When ClipSnatcher is updated or reloaded, tabs that were already open on X, Reddit or Facebook kept an old copy of the page script that could no longer reach the extension, so Save failed until the page was refreshed. ClipSnatcher now adds a fresh copy to those tabs, and the old one removes its button and steps aside. This needs Chrome's `scripting` permission, which adds no new warning: the sites it can touch are unchanged.
+- If a save can't be started for any other reason, the button now shows that reason instead of always blaming an update.
+
 ## 1.5.0 (2026-11-18)
 
 - **Copy on Windows:** the copy helper now has a Windows version, so **Copy**, "copy when saved" and the copy-last-video shortcut work there too. It puts the saved video on the clipboard the same way Ctrl+C in File Explorer does, ready to paste into Discord. Install it by double-clicking `native-helper\windows\install.cmd` (no admin rights needed); it works for Chrome, Edge and Brave. Settings shows the Windows instructions and the exact command on Windows.
