@@ -48,7 +48,7 @@ Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome 
 | `native-helper/windows/` | The same helper for Windows (a PowerShell script) and its install/uninstall scripts |
 | `test/` | Automated tests (`npm test`) |
 | `browser-tests/` | Checks in real Chrome, with local stand-ins for Reddit and an outside host (`npm run test:browser`) |
-| `docs/` | The audit plan and the handoff for work on Windows |
+| `docs/` | The audit plan |
 
 ## Three ways to save a video
 
