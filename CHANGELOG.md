@@ -2,6 +2,14 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
+## 1.4.1 (2026-11-18)
+
+Facebook fixes, from testing on the live site.
+
+- **Feed videos:** Save now works on regular video posts in the Facebook home feed, which have no link around the player. ClipSnatcher uses the video's ID on the player instead. Ads still can't be saved: they carry neither.
+- **Logged-in pages:** reads the video format Facebook serves to logged-in visitors, and asks for the page as a browser would; without that, Facebook left the video out.
+- **Right video:** no longer picks up the next reel that Facebook preloads further down the same page.
+
 ## 1.4.0 (2026-11-18)
 
 - **Video quality:** a new setting picks Best available, Smaller (720p or the next size down), or the best version under a size you choose, for chat apps with an upload limit. Sizes are checked with the site's own video host before saving; if nothing fits, the smallest is saved and you're told its size.
