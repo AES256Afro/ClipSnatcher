@@ -145,6 +145,6 @@ export function describeSave(r) {
 // "save another copy", only happen in the popup or history page.
 export function pageSaveResult(result) {
   if (result.needsConfirm) return { ok: false, error: `That video is hosted on ${result.host}. To save it anyway, paste the post link into ClipSnatcher and confirm there.` };
-  if (result.duplicate) return { ok: false, error: `${result.error}. To save another copy, use Download again in ClipSnatcher's history.` };
+  if (result.duplicate) return { ok: false, duplicate: true, error: `${result.error}. To save another copy, use Download again in ClipSnatcher's history.` };
   return result;
 }

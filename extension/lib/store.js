@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS = {
   quality: 'best',         // 'best' | 'smaller' (720p or less) | 'fit' (under maxMB)
   maxMB: 10,               // size limit for 'fit', e.g. a chat app's upload limit
   autoCopy: false,         // copy each video to the clipboard when it finishes (copy helper)
+  notifyProblems: false,   // a system notification when a save fails out of sight (optional permission)
 };
 
 export async function getSettings() {
@@ -141,7 +142,13 @@ export const removeEntries = (ids) => mutateHistory((list) => {
   for (let i = list.length - 1; i >= 0; i--) if (set.has(list[i].id)) list.splice(i, 1);
 });
 
-export const clearHistory = () => mutateHistory((list) => { list.length = 0; }).then(() => pruneThumbs());
+// Empties history and resolves to the entries that were in it. With `keepThumbs`, their
+// thumbnails stay until the next tidy-up, so the clear can be undone with pictures.
+export const clearHistory = async ({ keepThumbs = false } = {}) => {
+  const removed = await mutateHistory((list) => list.splice(0));
+  if (!keepThumbs) await pruneThumbs();
+  return removed || [];
+};
 
 /* -------------------------------------------------------------- backup/import */
 

@@ -221,3 +221,17 @@ test('saveSettings: two changes made at the same moment both stick', async () =>
   assert.equal(s.folder, 'Clips');
   assert.equal(s.perSite, false);
 });
+
+test('clearHistory: gives back what it removed, and can keep thumbnails for Undo', async () => {
+  await store.addEntry(entry('k1'));
+  await store.setThumb('k1', 'data:image/jpeg;base64,EEEE');
+  const removed = await store.clearHistory({ keepThumbs: true });
+  assert.deepEqual(removed.map((e) => e.id), ['k1']);
+  assert.deepEqual(await store.getHistory(), []);
+  assert.equal(typeof data['thumb:k1'], 'string', 'the picture is kept until the next tidy-up');
+  await store.restoreEntries(removed);
+  assert.deepEqual((await store.getHistory()).map((e) => e.id), ['k1']);
+  const again = await store.clearHistory();
+  assert.equal(again.length, 1);
+  assert.equal(data['thumb:k1'], undefined, 'a plain clear deletes the pictures at once');
+});

@@ -2,6 +2,8 @@
 // site that hosts the post you asked for, and to Chrome's own downloads system.
 import { resolve, detectSite, canonicalUrl, ResolveError, hostOf, isHttp, isPlaylist, isSiteMediaUrl, SITE_LABEL } from './lib/resolve.js';
 import { fromOwnPage as fromOwnPageOf, cleanHint, pageLimiter, copyLimiter, itemUrls, siteForSave, foreignUrl, redirectedAway, alreadySaved as alreadySavedIn, pageSaveResult, describeSave } from './lib/trust.js';
+import { addProblem, badgeText } from './lib/problems.js';
+import { cleanBatch, outcome, summary } from './lib/batch.js';
 import { slots } from './lib/slots.js';
 import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason, setThumb, migrateThumbs, pruneThumbs, cleanImportedEntry, validThumb, IMAGE_BUDGET_BYTES, MAX_HISTORY } from './lib/store.js';
 import { buildFilename } from './lib/names.js';
@@ -45,7 +47,13 @@ lockStorage();
 // Housekeeping on browser start-up and after an install or update: move thumbnails out of
 // history entries (versions before 1.3), then drop thumbnails of removed entries.
 const housekeeping = (thorough) => migrateThumbs().then(() => pruneThumbs({ thorough })).catch((e) => console.warn('ClipSnatcher: housekeeping failed', e));
-chrome.runtime.onStartup.addListener(() => housekeeping(false));
+// After Clear history, thumbnails are kept until the browser next starts (for Undo), then
+// deleted here even where that is the slow, thorough kind of tidy-up.
+chrome.runtime.onStartup.addListener(async () => {
+  const { pruneOnStart } = /** @type {any} */ (await chrome.storage.local.get('pruneOnStart').catch(() => ({})));
+  await housekeeping(!!pruneOnStart);
+  if (pruneOnStart) chrome.storage.local.remove('pruneOnStart').catch(() => {});
+});
 
 // A merge lives only as long as this worker. Any entry still marked "merging" when the
 // worker starts was cut off, so it is marked as failed instead of spinning forever.
@@ -124,8 +132,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const streamed = !site && !url && info.menuItemId === 'cs-video';
   const result = streamed ? { ok: false, error: STREAMED }
     : pageSaveResult(await startDownload(url, hint, { tabId, fromPage: true, expectSite }));
-  flashBadge(result.ok);
-  rememberResult(result);
+  report(result);
   // A post on another site may be private to the user: don't put its title or details
   // into this page.
   const crossSite = info.menuItemId === 'cs-link' && detectSite(url || '') !== site;
@@ -143,13 +150,22 @@ async function tellTab(tabId, site, result) {
   if (tab && detectSite(tab.url || '') === site) chrome.tabs.sendMessage(tabId, { type: 'clipsnatcher:toast', result: shown }, { frameId: 0 }).catch(() => {});
 }
 
-// One timer for the badge, so a later result always gets its full four seconds.
+/* ------------------------------------------------------- telling the user */
+
+// The badge shows how many problems are waiting to be seen (in red), and flashes a tick or
+// an exclamation mark for four seconds after a save started from outside the popup.
+// One timer, so a later flash always gets its full four seconds.
 let badgeTimer = 0;
+async function showProblemCount() {
+  const { problems } = /** @type {any} */ (await chrome.storage.session.get('problems').catch(() => ({})));
+  chrome.action.setBadgeBackgroundColor({ color: '#cf222e' });
+  chrome.action.setBadgeText({ text: badgeText(problems?.list?.length || 0) });
+}
 function flashBadge(ok) {
   chrome.action.setBadgeBackgroundColor({ color: ok ? '#1a7f37' : '#cf222e' });
   chrome.action.setBadgeText({ text: ok ? '✓' : '!' });
   clearTimeout(badgeTimer);
-  badgeTimer = setTimeout(() => chrome.action.setBadgeText({ text: '' }), 4000);
+  badgeTimer = setTimeout(showProblemCount, 4000);
 }
 
 // Pages without our script can't show a notice, so the popup shows the last result
@@ -157,6 +173,50 @@ function flashBadge(ok) {
 function rememberResult(result) {
   const text = describeSave(result);
   chrome.storage.session.set({ lastResult: { text, ok: !!result.ok, at: Date.now() } }).catch(() => {});
+}
+
+// How a save or copy started outside the popup went. A failure (other than "saved
+// before") also waits on the badge until the popup or history page is opened.
+function report(result) {
+  rememberResult(result);
+  if (result.ok || result.duplicate) return flashBadge(!!result.ok);
+  return noteProblem(describeSave(result));
+}
+
+async function noteProblem(text) {
+  clearTimeout(badgeTimer);
+  await sessionMap('problems', (m) => { m.list = addProblem(m.list, text, Date.now()); }).catch(() => {});
+  await showProblemCount();
+  notify(text);
+}
+
+// Shown and cleared by the popup and history page.
+async function takeProblems(clear) {
+  const list = (await sessionMap('problems', (m) => { const l = m.list || []; if (clear) m.list = []; return l; }).catch(() => [])) || [];
+  if (clear) { clearTimeout(badgeTimer); await showProblemCount(); }
+  return { ok: true, list };
+}
+
+// Optional system notifications for problems, switched on in Settings. Chrome asks for
+// the permission then; without it, or with the setting off, nothing is shown.
+/** @type {chrome.permissions.Permissions} */
+const NOTIFY = { permissions: ['notifications'] };
+let notificationsHooked = false;
+function hookNotifications() {
+  if (notificationsHooked || !chrome.notifications?.onClicked) return;
+  notificationsHooked = true;
+  chrome.notifications.onClicked.addListener((nid) => {
+    chrome.notifications.clear(nid);
+    chrome.tabs.create({ url: chrome.runtime.getURL('history.html') });
+  });
+}
+hookNotifications();
+async function notify(text) {
+  try {
+    if (!(await getSettings()).notifyProblems || !(await chrome.permissions.contains(NOTIFY)) || !chrome.notifications) return;
+    hookNotifications();
+    await chrome.notifications.create({ type: 'basic', iconUrl: chrome.runtime.getURL('icons/128.png'), title: 'ClipSnatcher', message: text, priority: 0 });
+  } catch (e) { console.warn('ClipSnatcher: could not show a notification', e); }
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -200,7 +260,11 @@ const OWN_HANDLERS = {
   'clipsnatcher:import': (msg) => importEntries(msg.entries, msg.thumbs),
   'clipsnatcher:setFav': (msg) => updateEntry(String(msg.id), { fav: msg.fav === true }).then((e) => ({ ok: !!e })),
   'clipsnatcher:setNote': (msg) => updateEntry(String(msg.id), { note: String(msg.note ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, NOTE_MAX) }).then((e) => ({ ok: !!e })),
-  'clipsnatcher:clear': () => clearHistory().then(() => ({ ok: true })),
+  'clipsnatcher:clear': () => clearAll(),
+  'clipsnatcher:undoClear': () => undoClear(),
+  'clipsnatcher:problems': (msg) => takeProblems(msg.clear === true),
+  'clipsnatcher:batch': (msg) => startBatch(msg.urls),
+  'clipsnatcher:batchSeen': () => batchSeen(),
   // Sent by the hidden merge page. Also keeps this worker awake during long merges.
   'clipsnatcher:progress': async (msg) => {
     if (typeof msg.jobId === 'string' && mergesRunning.has(msg.jobId) && Number.isFinite(msg.pct)) {
@@ -431,15 +495,13 @@ async function finishMerge(entry, item, filename, tabId, copyWhenDone) {
     if (copyWhenDone) await sessionMap('autoCopy', (m) => { m[downloadId] = true; });
     const now = await reconcile(downloadId);
     if (noAudio && now && now.state !== 'interrupted') {
-      flashBadge(false);
-      rememberResult({ ok: false, error: `${entry.title} is being saved without sound: Reddit's audio couldn't be merged in.` });
+      report({ ok: false, error: `${entry.title} is being saved without sound: Reddit's audio couldn't be merged in.` });
       tellTab(tabId, entry.site, { ok: false, error: 'A Reddit video is being saved without sound: its audio couldn\u2019t be merged in.' });
     }
   } catch (e) {
     console.warn('ClipSnatcher: could not save merged video', e);
     await updateEntry(entry.id, { state: 'interrupted', error: 'MERGE_FAILED' });
-    flashBadge(false);
-    rememberResult({ ok: false, error: `Couldn't save "${entry.title}": ${e?.message || 'the merge failed'}.` });
+    report({ ok: false, error: `Couldn't save "${entry.title}": ${e?.message || 'the merge failed'}.` });
     tellTab(tabId, entry.site, { ok: false, error: 'A ClipSnatcher download failed. Open ClipSnatcher from the toolbar for details.' });
   } finally {
     mergesRunning.delete(entry.id);
@@ -453,6 +515,78 @@ async function restore(entries) {
   const back = (await restoreEntries(Array.isArray(entries) ? entries : [], mergesRunning)) || [];
   for (const e of back) if (e.downloadId != null) await reconcile(e.downloadId, { quiet: true }).catch(() => {});
   return { ok: true, restored: back.length };
+}
+
+// Clear history keeps what it removed until Chrome closes, so it can be undone. If that
+// copy can't be kept (too large for this session's storage), there is no undo and the
+// thumbnails go at once.
+async function clearAll() {
+  const removed = await clearHistory({ keepThumbs: true });
+  let undo = false;
+  if (removed.length) {
+    try { await chrome.storage.session.set({ cleared: removed }); undo = true; } catch { /* no room: no undo */ }
+  }
+  if (undo) await chrome.storage.local.set({ pruneOnStart: true });
+  else await pruneThumbs();
+  return { ok: true, count: removed.length, undo };
+}
+
+async function undoClear() {
+  const { cleared } = await chrome.storage.session.get('cleared');
+  if (!Array.isArray(cleared)) return { ok: false, error: 'There’s nothing to put back: it was already put back, or Chrome was closed since.' };
+  await chrome.storage.session.remove('cleared');
+  return restore(cleared);
+}
+
+/* ----------------------------------------------------- several pasted links */
+
+// The links are saved one after another from here, not from the popup, so closing the
+// popup doesn't stop them. Progress and the summary live in session storage, where the
+// popup reads them, and a batch cut off by the worker stopping carries on when it starts.
+let batchRunning = false;
+async function startBatch(urls) {
+  const list = cleanBatch(urls);
+  if (list.length < 2) return { ok: false, error: 'Paste two or more links to save them together.' };
+  const { batch } = /** @type {any} */ (await chrome.storage.session.get('batch'));
+  if (batch?.running) return { ok: false, error: 'Another set of links is still being saved. Wait for it to finish, then try again.' };
+  await chrome.storage.session.set({ batch: { urls: list, results: [], running: true, at: Date.now() } });
+  runBatch();
+  return { ok: true, total: list.length };
+}
+
+async function runBatch() {
+  if (batchRunning) return;
+  batchRunning = true;
+  try {
+    for (;;) {
+      const { batch } = /** @type {any} */ (await chrome.storage.session.get('batch'));
+      if (!batch?.running) return;
+      if (batch.results.length >= batch.urls.length) {
+        batch.running = false;
+        batch.summary = summary(batch.results, batch.urls.length);
+        await chrome.storage.session.set({ batch });
+        if (batch.summary.ok) { rememberResult({ ok: true, message: batch.summary.text }); flashBadge(true); }
+        else await noteProblem(batch.summary.text);
+        return;
+      }
+      const url = batch.urls[batch.results.length];
+      // A link that was being saved when the worker stopped is tried again; if it had got
+      // far enough, it now counts as "already saved".
+      const r = await startDownload(url, {}, { pasted: true }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+      batch.results.push(outcome(url, r));
+      await chrome.storage.session.set({ batch });
+    }
+  } finally {
+    batchRunning = false;
+  }
+}
+chrome.storage.session.get('batch').then((/** @type {any} */ { batch }) => { if (batch?.running) runBatch(); }).catch(() => {});
+
+// The popup has shown a finished batch's summary.
+async function batchSeen() {
+  const { batch } = /** @type {any} */ (await chrome.storage.session.get('batch'));
+  if (batch && !batch.running) await chrome.storage.session.remove('batch');
+  return { ok: true };
 }
 
 /* ------------------------------------------------------- hidden merge page */
@@ -557,8 +691,7 @@ async function reconcile(downloadId, { quiet = false } = {}) {
   if (await takeFromSession('autoCopy', downloadId) && entry.state === 'complete') copyAfterSave(entry, tabId);
   if (quiet || entry.state !== 'interrupted' || was === 'interrupted' || entry.error === 'USER_CANCELED') return entry;
 
-  flashBadge(false);
-  rememberResult({ ok: false, error: `Download failed (${failureReason(entry.error)}): ${entry.title}` });
+  report({ ok: false, error: `Download failed (${failureReason(entry.error)}): ${entry.title}` });
   // Only tell the page that asked, and only if it is still on that site.
   tellTab(tabId, entry.site, { ok: false, error: `A ClipSnatcher download failed (${failureReason(entry.error)}). Open ClipSnatcher from the toolbar for details.` });
   return entry;
@@ -590,7 +723,7 @@ const autoCopyAllowed = copyLimiter({ gapMs: 10000 });
 async function copyAfterSave(entry, tabId) {
   const r = await copyFile(entry.id).catch((e) => ({ ok: false, error: e?.message }));
   const message = r.ok ? `Saved and copied: ${entry.title}. Paste it into Discord, Messages and so on.` : `Saved, but not copied: ${r.error || 'the copy helper didn\u2019t answer'}`;
-  rememberResult({ ok: r.ok, error: message, message });
+  report({ ok: r.ok, error: message, message });
   tellTab(tabId, entry.site, { ok: r.ok, message: r.ok ? 'Saved and copied to the clipboard.' : 'Saved, but couldn\u2019t copy it to the clipboard. Open ClipSnatcher for details.' });
 }
 
@@ -600,20 +733,18 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command === 'save-video') {
     const pageUrl = tab?.url || '';
     const site = detectSite(pageUrl);
-    if (!isHttp(pageUrl)) { flashBadge(false); return rememberResult({ ok: false, error: 'ClipSnatcher can\u2019t save from this tab. Open a post on X, Reddit or Facebook (or a video file) and try again.' }); }
+    if (!isHttp(pageUrl)) return report({ ok: false, error: 'ClipSnatcher can\u2019t save from this tab. Open a post on X, Reddit or Facebook (or a video file) and try again.' });
     tellTab(tab.id, site, { pending: true });
     const result = pageSaveResult(await startDownload(pageUrl, cleanHint({ titleHint: tab.title }, pageUrl), { tabId: tab.id, fromPage: true, expectSite: site || 'web' }));
-    flashBadge(result.ok);
-    rememberResult(result);
+    report(result);
     tellTab(tab.id, site, result);
   }
   if (command === 'copy-last') {
     const last = await lastSavedFile();
-    if (!last) { flashBadge(false); return rememberResult({ ok: false, error: 'Nothing saved yet to copy.' }); }
+    if (!last) return report({ ok: false, error: 'Nothing saved yet to copy.' });
     const r = await copyFile(last.id).catch((e) => ({ ok: false, error: e?.message }));
-    flashBadge(r.ok);
     const message = r.ok ? `Copied: ${last.title}` : `Couldn't copy "${last.title}": ${r.error || 'the copy helper didn\u2019t answer'}`;
-    rememberResult({ ok: r.ok, error: message, message });
+    report({ ok: r.ok, error: message, message });
     tellTab(tab?.id ?? null, detectSite(tab?.url || ''), { ok: r.ok, message: r.ok ? 'Last saved video copied to the clipboard.' : 'Couldn\u2019t copy the last saved video. Open ClipSnatcher for details.' });
   }
 });

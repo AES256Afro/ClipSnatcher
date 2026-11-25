@@ -54,10 +54,14 @@ Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome 
 
 - **Hover:** point at a video on X, Reddit or Facebook and click the **Save** button that appears in its top-right corner.
 - **Right-click:** right-click a video or a post link and choose the **Save video** item marked ClipSnatcher.
-- **Paste:** click the toolbar icon (or press `Alt+Shift+V`), paste a post link, and press **Save**. If the current tab is already a post, its link is filled in for you. You can paste several links at once.
+- **Paste:** click the toolbar icon (or press `Alt+Shift+V`), paste a post link, and press **Save**. If the current tab is already a post, its link is filled in for you. You can paste up to 20 links at once; they keep saving even if you close the popup, and it shows a summary when you next open it.
 - **Keyboard:** `Alt+Shift+S` saves the video in the current tab. `Alt+Shift+C` (`Alt+Shift+D` on Windows, where Chrome doesn't allow Alt+Shift+C) copies the last saved video to the clipboard (macOS and Windows, needs the helper). Change the keys at `chrome://extensions/shortcuts`.
 
 If you save a post you already have, ClipSnatcher says so and offers **Show in folder** or **Save again**.
+
+## When something goes wrong
+
+If a save fails while you're looking elsewhere (a Reddit merge that fails after you closed the tab, a download that breaks half-way), the toolbar icon shows a red count until you open ClipSnatcher or its history, which say what went wrong. In Settings you can also switch on a system notification for these; Chrome asks for permission to show notifications when you do.
 
 ## Quality and size
 
@@ -65,7 +69,7 @@ In Settings, choose **Best available**, **Smaller** (720p or the next size down)
 
 ## Favourites, notes and backups
 
-Star a video and add a short note from its **More** menu; notes are searchable, and **Favourites** in history shows only starred videos. **Back up history** in Settings saves everything (entries, notes, favourites, thumbnails, not the videos) to one file, and **Restore from a backup** adds it back on this or another computer.
+Star a video and add a short note from its **More** menu; notes are searchable, and **Favourites** in history shows only starred videos. **Back up history** in Settings saves everything (entries, notes, favourites, thumbnails, not the videos) to one file, and **Restore from a backup** adds it back on this or another computer. **Clear history** can be undone from Settings until you close Chrome.
 
 ## Where files go
 
