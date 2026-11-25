@@ -235,3 +235,24 @@ test('clearHistory: gives back what it removed, and can keep thumbnails for Undo
   assert.equal(again.length, 1);
   assert.equal(data['thumb:k1'], undefined, 'a plain clear deletes the pictures at once');
 });
+
+test('updates that change nothing are not written, but still answer', async () => {
+  await store.addEntry({ ...entry('w1'), downloadId: 7, dlStart: 's', state: 'in_progress' });
+  const set = globalThis.chrome.storage.local.set;
+  let writes = 0;
+  globalThis.chrome.storage.local.set = async (obj) => { if ('history' in obj) writes++; return set(obj); };
+  try {
+    const item = { id: 7, byExtensionId: 'me', startTime: 's' };
+    const same = await store.updateByDownload(item, 'me', { state: 'in_progress' });
+    assert.equal(same.entry.id, 'w1');
+    assert.equal(same.was, 'in_progress');
+    assert.equal(writes, 0, 'nothing changed: no write');
+    assert.equal((await store.updateEntry('w1', { state: 'in_progress' })).id, 'w1');
+    assert.equal(writes, 0);
+    await store.updateByDownload(item, 'me', { state: 'complete', path: '/a.mp4' });
+    assert.equal(writes, 1, 'a real change is written');
+    assert.equal((await store.getHistory())[0].path, '/a.mp4');
+  } finally {
+    globalThis.chrome.storage.local.set = set;
+  }
+});

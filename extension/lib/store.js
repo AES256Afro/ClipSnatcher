@@ -97,9 +97,15 @@ export const addEntry = (entry) => mutateHistory((list) => {
   return entry;
 });
 
+// True when applying `patch` would change nothing in `e`. With a full history, every
+// write rewrites the whole list (about 4 MB at 5,000 entries), so writes that change
+// nothing are skipped.
+const changesNothing = (e, patch) => Object.keys(patch).every((k) => Object.is(e[k], patch[k]));
+
 export const updateEntry = (id, patch) => mutateHistory((list) => {
   const e = list.find((x) => x.id === id);
   if (!e) return NO_CHANGE;
+  if (changesNothing(e, patch)) return NO_CHANGE_WITH(e);
   Object.assign(e, patch);
   return e;
 });
@@ -113,12 +119,15 @@ export function isEntryDownload(entry, item, extensionId) {
 
 // Applies a patch to the entry that belongs to this download. `patch` is an object, or a
 // function that is given the entry and returns one.
-// Resolves to { entry, was } (`was` = the state before the patch), or undefined if no entry matches.
+// Resolves to { entry, was } (`was` = the state before the patch), or undefined if no entry
+// matches. A patch that changes nothing is not written, but still resolves to the entry.
 export const updateByDownload = (item, extensionId, patch) => mutateHistory((list) => {
   const e = list.find((x) => isEntryDownload(x, item, extensionId));
   if (!e) return NO_CHANGE;
   const was = e.state;
-  Object.assign(e, typeof patch === 'function' ? patch(e) : patch);
+  const p = typeof patch === 'function' ? patch(e) : patch;
+  if (changesNothing(e, p)) return NO_CHANGE_WITH({ entry: { ...e }, was });
+  Object.assign(e, p);
   return { entry: { ...e }, was };
 });
 
