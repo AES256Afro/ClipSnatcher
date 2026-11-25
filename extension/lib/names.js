@@ -34,10 +34,10 @@ export function extensionFor(item) {
 
 /**
  * The path, relative to Chrome's Downloads folder, a video is saved to.
- * @param settings { folder, perSite, authorInName }
- * @param post     { site, title, author, id }
- * @param item     { kind, url?, index }
- * @param total    how many videos the post has
+ * @param {{ folder: string, perSite: boolean, authorInName: boolean }} settings
+ * @param {{ site: string, title: string, author: string, id: string }} post
+ * @param {{ kind: string, url?: string, index: number }} item
+ * @param {number} total  how many videos the post has
  */
 export function buildFilename(settings, post, item, total) {
   const folder = sanitizeFolder(settings.folder);

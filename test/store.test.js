@@ -191,6 +191,9 @@ test('only small JPEG data addresses are accepted as thumbnails', () => {
   assert.equal(store.validThumb('data:image/svg+xml;base64,AAAA'), false);
   assert.equal(store.validThumb("data:image/jpeg;base64,AA')"), false);
   assert.equal(store.validThumb('data:image/jpeg;base64,' + 'A'.repeat(400000)), false);
+  // Real thumbnails are a few thousand characters; much larger ones only come from a crafted backup.
+  assert.equal(store.validThumb('data:image/jpeg;base64,' + 'A'.repeat(30000)), true);
+  assert.equal(store.validThumb('data:image/jpeg;base64,' + 'A'.repeat(40000)), false);
 });
 
 test('restoring a backup never pushes existing entries out of a full history', async () => {

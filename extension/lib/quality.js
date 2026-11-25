@@ -8,12 +8,12 @@ const MAX_SIZE_CHECKS = 6;          // at most this many size lookups per video
 export const fmtMB = (bytes) => `${(bytes / 1048576).toFixed(bytes < 10 * 1048576 ? 1 : 0)} MB`;
 
 /**
- * @param item      a resolved item; `item.variants` (best first) may list other qualities
- * @param settings  { quality: 'best'|'smaller'|'fit', maxMB }
- * @param sizeOf    async (variant) => size in bytes, or 0 when unknown
- * @returns {{ item, note: string, over: boolean }}  the item to save (keeps index and other
- *   fields of the original), a short description of the choice, and whether it is
- *   still larger than the limit
+ * @param {any} item  a resolved item; `item.variants` (best first) may list other qualities
+ * @param {{ quality: string, maxMB: number }} settings  quality is 'best', 'smaller' or 'fit'
+ * @param {(variant: any) => Promise<number>} [sizeOf]  size in bytes, or 0 when unknown
+ * @returns {Promise<{ item: any, note: string, over: boolean }>}  the item to save (keeps
+ *   index and other fields of the original), a short description of the choice, and
+ *   whether it is still larger than the limit
  */
 export async function chooseVariant(item, settings, sizeOf = async () => 0) {
   const variants = item.variants?.length ? item.variants : [item];

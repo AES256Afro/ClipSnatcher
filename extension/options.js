@@ -2,6 +2,7 @@ import { getSettings, saveSettings, getHistory, getThumbs, BACKUP_FORMAT } from 
 import { buildFilename, sanitizeFolder } from './lib/names.js';
 import { ICON } from './lib/ui.js';
 
+/** @type {(id: string) => any} */
 const $ = (id) => document.getElementById(id);
 $('historyLink').innerHTML = ICON.history + 'History';
 
@@ -23,7 +24,7 @@ async function init() {
   const s = await getSettings();
   $('folder').value = s.folder;
   for (const k of TOGGLES) $(k).checked = !!s[k];
-  for (const r of document.querySelectorAll('input[name="quality"]')) r.checked = r.value === s.quality;
+  for (const r of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="quality"]'))) r.checked = r.value === s.quality;
   $('maxMB').value = s.maxMB;
   preview();
   stats();
@@ -57,7 +58,7 @@ $('folder').addEventListener('input', () => {
 for (const k of TOGGLES) {
   $(k).addEventListener('change', async () => { preview(); await saveSettings({ [k]: $(k).checked }); say('Saved', 'ok'); });
 }
-for (const r of document.querySelectorAll('input[name="quality"]')) {
+for (const r of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="quality"]'))) {
   r.addEventListener('change', async () => { if (r.checked) { await saveSettings({ quality: r.value }); say('Saved', 'ok'); } });
 }
 let mbTimer;
@@ -87,6 +88,7 @@ async function stats() {
 // The helper only answers extension IDs it was installed for. This copy's ID is added
 // to the command unless it is the project's own development ID (the installer's default).
 const DEV_ID = 'phdbcmaifcaagmfkmbdhokgmkldllajj';
+/** @type {chrome.permissions.Permissions} */
 const HELPER_PERMISSION = { permissions: ['nativeMessaging'] };
 
 async function setUpHelper() {
@@ -154,19 +156,20 @@ $('importFile').addEventListener('change', async () => {
   const entries = Array.isArray(data) ? data : data?.app === 'ClipSnatcher' && Array.isArray(data.entries) ? data.entries : null;
   if (!entries) return say('That file isn\u2019t a ClipSnatcher backup.', 'err');
   const thumbs = !Array.isArray(data) && data.thumbs && typeof data.thumbs === 'object' ? data.thumbs : {};
-  let added = 0, existing = 0, invalid = 0, full = 0;
+  let added = 0, existing = 0, invalid = 0, full = 0, noImage = 0;
   for (let i = 0; i < entries.length; i += IMPORT_CHUNK) {
     say(`Restoring\u2026 ${Math.min(i + IMPORT_CHUNK, entries.length)} of ${entries.length}`);
     const part = entries.slice(i, i + IMPORT_CHUNK);
     const partThumbs = Object.fromEntries(part.map((e) => [e?.id, thumbs[e?.id]]).filter(([, t]) => typeof t === 'string'));
     const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:import', entries: part, thumbs: partThumbs }).catch(() => null);
     if (!r?.ok) return say('Restoring stopped part-way. Try again; entries already restored are kept.', 'err');
-    added += r.added; existing += r.existing; invalid += r.invalid; full += r.full || 0;
+    added += r.added; existing += r.existing; invalid += r.invalid; full += r.full || 0; noImage += r.imagesSkipped || 0;
   }
   stats();
   const parts = [`Restored ${added} video${added === 1 ? '' : 's'}.`];
   if (existing) parts.push(`${existing} ${existing === 1 ? 'was' : 'were'} already in history.`);
   if (full) parts.push(`${full} didn\u2019t fit: history is full (5,000 videos), and existing entries are never removed to make room.`);
+  if (noImage) parts.push(`${noImage} thumbnail${noImage === 1 ? ' was' : 's were'} left out to save space; the entries themselves are all there.`);
   if (invalid) parts.push(`${invalid} couldn\u2019t be read and ${invalid === 1 ? 'was' : 'were'} skipped.`);
   say(parts.join(' '), invalid || full ? 'err' : 'ok');
 });

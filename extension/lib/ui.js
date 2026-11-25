@@ -193,7 +193,7 @@ export function renderList(container, entries, live, opts = {}) {
   // Don't throw away a note someone is typing; the page re-renders when they finish.
   if (container.querySelector('.note-edit')) { container.dataset.stale = '1'; return; }
   closeMenu();
-  const active = container.contains(document.activeElement) ? document.activeElement : null;
+  const active = container.contains(document.activeElement) ? /** @type {HTMLElement} */ (document.activeElement) : null;
   const keep = active?.dataset?.id ? { id: active.dataset.id, act: active.dataset.act, slot: active.dataset.slot || '' } : null;
   container.innerHTML = entries.length ? entries.map((e) => rowHTML(e, live, opts)).join('') : (opts.emptyHTML || '');
   const thumbs = opts.thumbs || new Map();
@@ -395,7 +395,7 @@ export function announceMergeOutcomes(seen, entries, live, say) {
 // Opens a small box under the row's title to write or change its note.
 // Enter saves, Escape cancels; leaving the box also saves.
 function editNote(entry, say) {
-  const row = [...document.querySelectorAll('.row')].find((r) => r.dataset.id === entry.id);
+  const row = [...document.querySelectorAll('.row')].find((r) => /** @type {HTMLElement} */ (r).dataset.id === entry.id);
   const meta = row?.querySelector('.meta');
   if (!meta || meta.querySelector('.note-edit')) return;
   const list = row.parentElement;
@@ -410,7 +410,7 @@ function editNote(entry, say) {
     done = true;
     const text = input.value.trim();
     // Keep keyboard focus on this row (its More button) once the box closes.
-    if (byKeyboard) row.querySelector('[data-act="more"]')?.focus({ preventScroll: true });
+    if (byKeyboard) /** @type {HTMLElement|null} */ (row.querySelector('[data-act="more"]'))?.focus({ preventScroll: true });
     input.remove();
     if (list) list.dataset.stale = '1';     // redraw the row, which also puts the note line back
     if (save && text !== (entry.note || '')) {

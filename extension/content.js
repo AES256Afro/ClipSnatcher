@@ -32,6 +32,13 @@
   // a copy that is still connected ignores it.
   let retired = false;
   const connected = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+  // Chrome's own copy and the one added after an update can both arrive in a tab that was
+  // loading at that moment. Both would be connected, so neither would step aside. Copies of
+  // this script share one isolated world per page (the page itself can't see this), so a
+  // second copy stays out while a working one is already here.
+  const KEY = '__clipsnatcherPage';
+  if (globalThis[KEY]?.live()) return;
+  globalThis[KEY] = { live: () => !retired && connected() };
   function retire() {
     if (retired) return;
     retired = true;

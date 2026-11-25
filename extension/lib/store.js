@@ -47,7 +47,7 @@ export const DEFAULT_SETTINGS = {
 
 export async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
-  return { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  return { ...DEFAULT_SETTINGS, .../** @type {object} */ (settings || {}) };
 }
 
 export async function saveSettings(patch) {
@@ -141,7 +141,12 @@ export const clearHistory = () => mutateHistory((list) => { list.length = 0; }).
 
 export const BACKUP_FORMAT = 2;
 export const THUMB_OK = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
-const THUMB_MAX_CHARS = 300000;
+// The thumbnails this extension makes are 160 px JPEGs, a few thousand characters each.
+// The limit leaves plenty of room for those while keeping a crafted backup from filling
+// the disk: 5,000 entries at this size is under 200 MB, and restoring stops adding
+// pictures once storage passes IMAGE_BUDGET_BYTES anyway.
+const THUMB_MAX_CHARS = 40000;
+export const IMAGE_BUDGET_BYTES = 100 * 1048576;
 export const validThumb = (t) => typeof t === 'string' && t.length <= THUMB_MAX_CHARS && THUMB_OK.test(t);
 
 // Turns one entry from a backup file into a safe history entry, or null.

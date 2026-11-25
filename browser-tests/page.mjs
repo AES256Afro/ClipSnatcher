@@ -126,6 +126,13 @@ check('no script errors from the extension on the page', errorsFor(ts).filter((e
   check('after an update, Save works in a tab that was open before it, without a refresh', clicked && (await history()).some((e) => e.site === 'facebook' && e.state === 'complete'), JSON.stringify([clicked, await history()]));
   check('...and only one Save button is left on the page', (await fbPage(`document.querySelectorAll('clipsnatcher-ui').length`)) === 1);
   check('...with no script errors from the old copy', errorsFor(fs2).slice(fbErrorsBefore).filter((e) => e.includes('chrome-extension')).length === 0, errorsFor(fs2).slice(fbErrorsBefore).join('\n'));
+
+  // A tab loading at the moment of an update can get Chrome's own copy and the added one,
+  // both connected. The second must stay out, or the page gets two buttons and two notices.
+  r = await evalIn(ext, `chrome.tabs.query({ url: 'https://www.facebook.com/*' }).then(([t]) => chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['content.js'] })).then(() => 'injected', (e) => e.message)`);
+  await fbMove(5, 690); await wait(600);
+  await fbMove(240, 120); await wait(300); await fbMove(250, 130); await wait(900);
+  check('a second copy added to a tab with a working one stays out: still one Save button', r === 'injected' && (await fbPage(`[...document.querySelectorAll('clipsnatcher-ui')].filter((el) => el.style.display === 'block').length`)) === 1 && (await fbPage(`document.querySelectorAll('clipsnatcher-ui').length`)) === 1, JSON.stringify(r));
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
