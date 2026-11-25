@@ -1,6 +1,7 @@
 import { isPostUrl } from './lib/resolve.js';
 import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes, runAction } from './lib/ui.js';
 
+/** @type {(id: string) => any} */
 const $ = (id) => document.getElementById(id);
 $('openHistory').innerHTML = ICON.history;
 $('openSettings').innerHTML = ICON.gear;
@@ -46,7 +47,7 @@ chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
 });
 
 // A right-click save on a page that can't show a notice leaves its result here.
-chrome.storage.session.get('lastResult').then(({ lastResult }) => {
+chrome.storage.session.get('lastResult').then((/** @type {{ lastResult?: { text: string, ok: boolean, at: number } }} */ { lastResult }) => {
   if (!lastResult || Date.now() - lastResult.at > 90000) return;
   say(lastResult.text, lastResult.ok ? 'ok' : 'err');
   chrome.storage.session.remove('lastResult');

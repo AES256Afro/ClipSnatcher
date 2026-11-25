@@ -83,7 +83,7 @@ async function merge(msg) {
   const keepAwake = setInterval(() => report(true), KEEP_AWAKE_MS);
   try {
     const [v, a] = await Promise.all([fetchBytes(msg.video, 'video', onProgress), fetchBytes(msg.audio, 'audio', onProgress)]);
-    const blob = new Blob(muxAV(v, a), { type: 'video/mp4' });
+    const blob = new Blob(/** @type {BlobPart[]} */ (muxAV(v, a)), { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
     blobs.set(url, setTimeout(() => revoke(url), BLOB_LIFETIME_MS));
     return { ok: true, url, size: blob.size };

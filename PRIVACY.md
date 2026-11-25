@@ -1,6 +1,6 @@
 # ClipSnatcher Privacy Policy
 
-Last updated: November 18, 2026
+Last updated: November 25, 2026
 
 ClipSnatcher is a browser extension that saves videos from social media posts to your computer. It does not collect, transmit, sell or share any personal data. There are no accounts, no analytics and no servers operated by this project.
 
@@ -38,13 +38,14 @@ No request is ever made to a server belonging to this project, because there isn
 
 ## Permissions
 
-- **Downloads, and opening downloads:** to save the video you chose and to play or show it later.
-- **Storage, including unlimited storage:** to keep your settings and history on your computer. History includes small thumbnails, which can grow past the default limit.
-- **Context menus:** to add "Save video" to the right-click menu.
-- **Active tab:** when you use that right-click menu on another website, to read the page's title so the saved file gets a useful name.
-- **Offscreen document:** to join Reddit's separate video and audio files on your computer.
+- **Downloads, and opening downloads** (`downloads`, `downloads.open`): to save the video you chose and to play or show it later.
+- **Storage, including unlimited storage** (`storage`, `unlimitedStorage`): to keep your settings and history on your computer. History includes small thumbnails, which can grow past the default limit.
+- **Context menus** (`contextMenus`): to add "Save video" to the right-click menu.
+- **Active tab** (`activeTab`): when you use that right-click menu on another website, to read the page's title so the saved file gets a useful name.
+- **Offscreen document** (`offscreen`): to join Reddit's separate video and audio files on your computer.
+- **Scripting** (`scripting`): when ClipSnatcher is installed or updated, to add its own Save-button script again to X, Reddit and Facebook tabs that were already open, so Save keeps working without refreshing them. It only runs the script that ships inside the extension, only on those sites.
 - **Site access (X, Reddit, Facebook):** to show the Save button on videos, to look up the video file for the post you chose, and to pre-fill the popup with the address of the post you are on.
-- **Native messaging (optional):** not granted at install. Chrome asks you for it only if you switch on the optional copy helper in Settings.
+- **Native messaging (optional)** (`nativeMessaging`): not granted at install. Chrome asks you for it only if you switch on the optional copy helper in Settings.
 
 ClipSnatcher does not run in incognito windows.
 

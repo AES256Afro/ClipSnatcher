@@ -556,6 +556,7 @@ export function findFbVideoUrl(html, id) {
   // logged-in user list "progressive_urls", each with a quality label and a failure reason
   // (entries that failed are skipped). [^{}] keeps a match inside one JSON object.
   // Each pattern: [regex, rank of a match (lower is better; -1 skips it)].
+  /** @type {Array<[RegExp, (m: RegExpExecArray) => number]>} */
   const patterns = [
     [/"browser_native_hd_url":"([^"]+)"/g, () => 0],
     [/"progressive_url":"([^"]+)"([^{}]*?)"metadata":\{[^{}]*?"quality":"(HD|SD)"/g, (m) => (fbFailed(m[2]) || fbFailedAfter(html, m.index + m[0].length) ? -1 : m[3] === 'HD' ? 1 : 4)],

@@ -86,6 +86,7 @@ Save videos from social media posts (X, Reddit, Facebook) to the user's computer
 | unlimitedStorage | `The local history includes a small thumbnail per saved video, which can exceed the default storage limit over time.` |
 | contextMenus | `Adds "Save video" items to the right-click menu on videos and post links.` |
 | offscreen | `Reddit serves video and audio as separate files. An offscreen page joins them locally into one MP4 and hands it to the downloads system.` |
+| scripting | `When the extension is installed or updated, adds its Save-button script again to X, Reddit and Facebook tabs that were already open, so Save keeps working without the user refreshing the page. It only runs the extension's own packaged content script, only on those sites, and never runs remote or page-supplied code.` |
 | activeTab | `When the user picks "Save video" from the right-click menu on another website, reads that page's title so the saved file gets a useful name.` |
 | nativeMessaging (optional) | `Talks to an optional helper the user installs themselves, which copies a saved video file to the clipboard. It is an optional permission, requested only when the user switches the helper on in Settings.` |
 

@@ -8,10 +8,15 @@
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.mjs",
+    "typecheck": "tsc -p tsconfig.json",
     "build": "bash scripts/build-store-zip.sh",
     "test:browser": "node browser-tests/run.mjs"
   },
   "engines": {
     "node": ">=20.3"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "typescript": "5.9.3"
   }
 }

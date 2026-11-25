@@ -1,5 +1,6 @@
 import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
 
+/** @type {(id: string) => any} */
 const $ = (id) => document.getElementById(id);
 $('settings').innerHTML = ICON.gear + 'Settings';
 
@@ -139,7 +140,7 @@ chrome.downloads.onChanged.addListener((d) => { if (d.state || d.exists || d.fil
 chrome.downloads.onErased.addListener(() => { clearTimeout(dlTimer); dlTimer = setTimeout(render, 300); });   // Chrome's download list was cleared
 // "/" jumps to the search box; Escape in it clears the search.
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') && !document.activeElement?.isContentEditable) {
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') && !/** @type {HTMLElement|null} */ (document.activeElement)?.isContentEditable) {
     e.preventDefault();
     $('q').focus();
     $('q').select();

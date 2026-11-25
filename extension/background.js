@@ -1,7 +1,8 @@
 // ClipSnatcher background worker. No analytics, no remote servers: it only talks to the
 // site that hosts the post you asked for, and to Chrome's own downloads system.
 import { resolve, detectSite, canonicalUrl, ResolveError, hostOf, isHttp, isPlaylist, isSiteMediaUrl, SITE_LABEL } from './lib/resolve.js';
-import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason, setThumb, migrateThumbs, pruneThumbs, cleanImportedEntry, validThumb, MAX_HISTORY } from './lib/store.js';
+import { fromOwnPage as fromOwnPageOf, cleanHint, pageLimiter, copyLimiter, itemUrls, siteForSave, foreignUrl, redirectedAway, alreadySaved as alreadySavedIn, pageSaveResult } from './lib/trust.js';
+import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason, setThumb, migrateThumbs, pruneThumbs, cleanImportedEntry, validThumb, IMAGE_BUDGET_BYTES, MAX_HISTORY } from './lib/store.js';
 import { buildFilename } from './lib/names.js';
 import { chooseVariant } from './lib/quality.js';
 
@@ -113,9 +114,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 
   tellTab(tabId, site, { pending: true });      // instant feedback while the video is looked up
-  let result = await startDownload(url, hint, { tabId, fromPage: true, expectSite });
-  if (result.needsConfirm) result = { ok: false, error: `That video is hosted on ${result.host}. To save it anyway, paste the post link into ClipSnatcher and confirm there.` };
-  if (result.duplicate) result = { ok: false, error: `${result.error}. To save another copy, use Download again in ClipSnatcher's history.` };
+  const result = pageSaveResult(await startDownload(url, hint, { tabId, fromPage: true, expectSite }));
   flashBadge(result.ok);
   rememberResult(result);
   // A post on another site may be private to the user: don't put its title or details
@@ -149,47 +148,8 @@ function rememberResult(result) {
 
 /* ------------------------------------------------------------------ messages */
 
-// A message is trusted only when it comes from one of this extension's own pages
-// (popup, history, settings, the hidden merge page). Content scripts run inside
-// web pages, so they may only ask to save a video or read the one setting they need.
-function fromOwnPage(sender) {
-  return sender?.id === ME && (sender.origin === EXT_ORIGIN || (sender.url || '').startsWith(EXT_ORIGIN + '/'));
-}
-
-// Keep only well-formed values from a web page, and only addresses that belong to
-// the site the page is on. A page can never say "the user agreed to another host".
-function cleanHint(raw, pageUrl) {
-  const h = raw && typeof raw === 'object' ? raw : {};
-  const site = detectSite(pageUrl || '');
-  const out = {
-    pageUrl: isHttp(pageUrl) ? pageUrl : '',
-    titleHint: typeof h.titleHint === 'string' ? h.titleHint.slice(0, 300) : '',
-    index: Number.isInteger(h.index) && h.index > 0 && h.index < 50 ? h.index : 0,
-    quoted: h.quoted === true,
-    force: h.force === true,      // "save another copy" after being told it was saved before
-  };
-  if (!site) return out;
-  // Each address is parsed once, strictly; the parsed form is what gets checked and what
-  // gets used from here on.
-  const postUrl = canonicalUrl(h.postUrl);
-  if (postUrl && detectSite(postUrl) === site) out.postUrl = postUrl;
-  const videoSrc = canonicalUrl(h.videoSrc);
-  if (videoSrc && !isPlaylist(videoSrc) && isSiteMediaUrl(site, videoSrc)) out.videoSrc = videoSrc;
-  if (site === 'reddit' && typeof h.packaged === 'string' && h.packaged.length < 20000) out.packaged = h.packaged; // its addresses are host-checked by the resolver
-  return out;
-}
-
-const pageLoad = new Map();   // tabId -> { running, started: [timestamps] }
-function admit(tabId) {
-  const now = Date.now();
-  const s = pageLoad.get(tabId) || { running: 0, started: [] };
-  s.started = s.started.filter((t) => now - t < 60000);
-  if (s.running >= PAGE_MAX_RUNNING || s.started.length >= PAGE_MAX_PER_MINUTE) return null;
-  s.running++;
-  s.started.push(now);
-  pageLoad.set(tabId, s);
-  return () => { s.running--; };
-}
+const fromOwnPage = (sender) => fromOwnPageOf(sender, ME, EXT_ORIGIN);
+const admit = pageLimiter({ maxRunning: PAGE_MAX_RUNNING, perMinute: PAGE_MAX_PER_MINUTE });
 
 const PAGE_HANDLERS = {
   'clipsnatcher:download': async (msg, sender) => {
@@ -247,12 +207,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 /* ----------------------------------------------------------------- downloads */
 
-const itemUrls = (item) => (item.kind === 'direct' ? [item.url] : [item.video, item.audio]);
 const NO_SOUND = 'It will have no sound: Reddit’s audio couldn’t be found or merged in.';
 
 /**
+ * What a save reports back. `ok` with title, count and entries (and maybe warning, detail);
+ * or not `ok` with an error, plus one of: needsConfirm and host (another host needs a yes),
+ * duplicate, busy and entryId (saved before), or failed (rows for downloads that died).
+ * @typedef {{ ok: boolean, error?: string, message?: string, title?: string, count?: number,
+ *   entries?: string[], warning?: string, detail?: string, failed?: string[],
+ *   needsConfirm?: boolean, host?: string, duplicate?: boolean, busy?: boolean, entryId?: string }} SaveResult
+ */
+
+/**
  * Find the video for `url` and start saving it.
- * @returns {{ok:true,title,count,entries,warning?}|{ok:false,error,failed?}|{ok:false,needsConfirm:true,host,error}}
+ * @returns {Promise<SaveResult>}
  */
 async function startDownload(url, hint = {}, ctx = {}) {
   if (!url) return { ok: false, error: ctx.fromPage ? 'Couldn’t tell which post this video belongs to. Open the post itself, then save from there.' : 'Paste a link to a post first.' };
@@ -266,14 +234,9 @@ async function startDownload(url, hint = {}, ctx = {}) {
   }
 
   // A save that started from a page or post link of one site must end on that site.
-  // (null or undefined means a popup paste, where any supported site is fine.)
-  if (ctx.expectSite != null && r.site !== ctx.expectSite) {
-    // One exception: the video file's own address, which has already been checked to be
-    // on that site's media host. It is filed under the site it came from.
-    const ownFile = SITE_LABEL[ctx.expectSite] && r.site === 'web' && r.items.flatMap(itemUrls).every((u) => isSiteMediaUrl(ctx.expectSite, u));
-    if (!ownFile) return { ok: false, error: 'That link doesn’t lead to a post ClipSnatcher can save from. Open the post itself, then save from there.' };
-    r.site = ctx.expectSite;
-  }
+  const site = siteForSave(r, ctx.expectSite);
+  if (!site) return { ok: false, error: 'That link doesn’t lead to a post ClipSnatcher can save from. Open the post itself, then save from there.' };
+  r.site = site;
 
   // Videos already saved (and whose file is still there) aren't saved twice unless asked.
   // Checked first, so nothing is looked up or asked about for a post already saved.
@@ -281,7 +244,8 @@ async function startDownload(url, hint = {}, ctx = {}) {
   if (!hint.force) {
     const history = await getHistory();
     const dups = new Map();
-    for (const item of r.items) { const d = await alreadySaved(history, r, item); if (d) dups.set(item, d); }
+    const deps = { isMerging: (id) => mergesRunning.has(id), lookup: downloadItemFor };
+    for (const item of r.items) { const d = await alreadySavedIn(history, r, item, deps); if (d) dups.set(item, d); }
     if (dups.size && dups.size === r.items.length) {
       const first = [...dups.values()][0];
       return {
@@ -310,13 +274,11 @@ async function startDownload(url, hint = {}, ctx = {}) {
   // from the user, given in the popup or history page (hint.allowHost is never taken from a web page).
   const urls = r.items.flatMap(itemUrls);
   if (urls.some((u) => !isHttp(u))) return { ok: false, error: 'That post’s video address isn’t a web link, so it can’t be saved.' };
-  if (SITE_LABEL[r.site]) {
-    const foreign = urls.find((u) => !isSiteMediaUrl(r.site, u) && hostOf(u) !== hint.allowHost);
-    if (foreign) {
-      const host = hostOf(foreign);
-      const plain = /^http:/i.test(foreign) ? ' over an unencrypted connection' : '';
-      return { ok: false, needsConfirm: true, host, title: r.title, error: `This video is hosted on ${host}, not on ${SITE_LABEL[r.site]}. Saving it will download from ${host}${plain}.` };
-    }
+  const foreign = foreignUrl(r.site, urls, hint.allowHost);
+  if (foreign) {
+    const host = hostOf(foreign);
+    const plain = /^http:/i.test(foreign) ? ' over an unencrypted connection' : '';
+    return { ok: false, needsConfirm: true, host, title: r.title, error: `This video is hosted on ${host}, not on ${SITE_LABEL[r.site]}. Saving it will download from ${host}${plain}.` };
   }
   if (!isHttp(r.sourceUrl)) r.sourceUrl = url;
 
@@ -328,6 +290,8 @@ async function startDownload(url, hint = {}, ctx = {}) {
   };
   const saved = [];
   const failed = [];      // rows for downloads that died at once
+  // "Copy when saved" is decided now, for the whole save, whenever it finishes.
+  const copyWhenDone = !!settings.autoCopy && autoCopyAllowed(ctx);
   const problems = [];
 
   for (const item of r.items) {
@@ -353,7 +317,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
         entry.state = 'merging';
         await addEntry(entry);
         thumb.then((data) => data && setThumb(entry.id, data));
-        finishMerge(entry, item, filename, ctx.tabId ?? null);
+        finishMerge(entry, item, filename, ctx.tabId ?? null, copyWhenDone);
         saved.push(entry);
         continue;
       }
@@ -362,7 +326,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
       Object.assign(entry, { downloadId, dlStart: dl?.startTime || null });
       await addEntry(entry);
       if (ctx.tabId != null) await sessionMap('tabs', (m) => { m[downloadId] = ctx.tabId; });
-      if (settings.autoCopy && autoCopyAllowed(ctx)) await sessionMap('autoCopy', (m) => { m[downloadId] = true; });
+      if (copyWhenDone) await sessionMap('autoCopy', (m) => { m[downloadId] = true; });
       thumb.then((data) => data && setThumb(entry.id, data));
       // The download may already have finished or failed before the entry existed.
       const now = await reconcile(downloadId, { quiet: true });
@@ -381,28 +345,6 @@ async function startDownload(url, hint = {}, ctx = {}) {
   if (!warning && problems.length) warning = `${problems.length} of ${r.items.length} videos couldn’t be started.`;
   if (!warning && overLimit) warning = overLimit + '.';
   return { ok: true, title: r.title, count: saved.length, entries: saved.map((e) => e.id), warning, detail: [...new Set(notes)].join('; ') };
-}
-
-// The history entry for this video if it was saved before and its file is still there
-// (or it is being saved right now). Matches on site, post and position in the post.
-// Entries restored from a backup never count: their files may be on another computer.
-async function alreadySaved(history, r, item) {
-  const index = item.index || 1;
-  const fileUrl = item.kind === 'direct' ? item.url : item.video;
-  for (const e of history) {
-    if (e.imported || e.site !== r.site || (e.index || 1) !== index) continue;
-    // Files from other websites are told apart by their own address (one page can hold
-    // several); posts by their id on the site, or their address for entries made before 1.4.
-    const same = r.site === 'web' ? e.mediaUrl === fileUrl : (e.postId ? e.postId === String(r.id) : e.sourceUrl === r.sourceUrl);
-    if (!same) continue;
-    if (e.state === 'merging') { if (mergesRunning.has(e.id)) return { entry: e, busy: true }; continue; }
-    const dl = await downloadItemFor(e).catch(() => null);
-    if (e.state === 'in_progress') { if (dl?.state === 'in_progress') return { entry: e, busy: true }; continue; }
-    if (e.state !== 'complete') continue;
-    if (dl && dl.exists === false) continue;          // the file is gone: save it again without asking
-    return { entry: e, busy: false };
-  }
-  return null;
 }
 
 function whenText(t) {
@@ -442,7 +384,7 @@ async function download(url, filename) {
 
 // Runs after the reply for a Reddit save has gone out: merges the two tracks, hands the
 // result to Chrome, and ties the waiting history row to that download.
-async function finishMerge(entry, item, filename, tabId) {
+async function finishMerge(entry, item, filename, tabId, copyWhenDone) {
   mergesRunning.add(entry.id);
   const stillWanted = async () => (await getHistory()).some((e) => e.id === entry.id);
   try {
@@ -473,7 +415,7 @@ async function finishMerge(entry, item, filename, tabId) {
     const [dl] = await chrome.downloads.search({ id: downloadId });
     await updateEntry(entry.id, { downloadId, dlStart: dl?.startTime || null, state: 'in_progress', noAudio });
     if (tabId != null) await sessionMap('tabs', (m) => { m[downloadId] = tabId; });
-    if ((await getSettings()).autoCopy) await sessionMap('autoCopy', (m) => { m[downloadId] = true; });
+    if (copyWhenDone) await sessionMap('autoCopy', (m) => { m[downloadId] = true; });
     const now = await reconcile(downloadId);
     if (noAudio && now && now.state !== 'interrupted') {
       flashBadge(false);
@@ -595,7 +537,7 @@ async function reconcile(downloadId, { quiet = false } = {}) {
   const { entry, was } = changed;
 
   // A download that was redirected to a host nobody agreed to is stopped and removed.
-  if (SITE_LABEL[entry.site] && isHttp(item.finalUrl) && !isSiteMediaUrl(entry.site, item.finalUrl) && hostOf(item.finalUrl) !== entry.mediaHost && entry.error !== 'REDIRECTED') {
+  if (redirectedAway(entry, item)) {
     if (item.state === 'in_progress') await chrome.downloads.cancel(downloadId).catch(() => {});
     else if (item.state === 'complete') await chrome.downloads.removeFile(downloadId).catch(() => {});
     await updateEntry(entry.id, { state: 'interrupted', error: 'REDIRECTED' });
@@ -622,24 +564,23 @@ async function importEntries(entries, thumbs) {
   const given = Array.isArray(entries) ? entries.slice(0, MAX_HISTORY) : [];
   const clean = given.map(cleanImportedEntry).filter(Boolean);
   const back = (await restoreEntries(clean, mergesRunning, { keepExisting: true })) || [];
-  let images = 0;
+  let images = 0, imagesSkipped = 0;
+  // Pictures are optional: past the storage budget they are left out, never the entries.
+  let used = await chrome.storage.local.getBytesInUse(null).catch(() => 0);
   for (const { id } of back) {
     const t = thumbs && typeof thumbs === 'object' ? thumbs[id] : null;
-    if (validThumb(t)) { await setThumb(id, t); images++; }
+    if (!validThumb(t)) continue;
+    if (used + t.length > IMAGE_BUDGET_BYTES) { imagesSkipped++; continue; }
+    await setThumb(id, t);
+    used += t.length;
+    images++;
   }
-  return { ok: true, added: back.length, existing: back.existing || 0, full: back.full || 0, invalid: given.length - clean.length, images };
+  return { ok: true, added: back.length, existing: back.existing || 0, full: back.full || 0, invalid: given.length - clean.length, images, imagesSkipped };
 }
 
 // Saves asked for by a web page (the hover button) copy at most once every 10 seconds
 // per tab, so a misbehaving page can't keep replacing what's on the clipboard.
-const lastPageCopy = new Map();   // tabId -> time
-function autoCopyAllowed(ctx) {
-  if (!ctx.fromPage || ctx.tabId == null) return true;
-  const now = Date.now();
-  if (now - (lastPageCopy.get(ctx.tabId) || 0) < 10000) return false;
-  lastPageCopy.set(ctx.tabId, now);
-  return true;
-}
+const autoCopyAllowed = copyLimiter({ gapMs: 10000 });
 
 async function copyAfterSave(entry, tabId) {
   const r = await copyFile(entry.id).catch((e) => ({ ok: false, error: e?.message }));
@@ -656,9 +597,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     const site = detectSite(pageUrl);
     if (!isHttp(pageUrl)) { flashBadge(false); return rememberResult({ ok: false, error: 'ClipSnatcher can\u2019t save from this tab. Open a post on X, Reddit or Facebook (or a video file) and try again.' }); }
     tellTab(tab.id, site, { pending: true });
-    let result = await startDownload(pageUrl, cleanHint({ titleHint: tab.title }, pageUrl), { tabId: tab.id, fromPage: true, expectSite: site || 'web' });
-    if (result.needsConfirm) result = { ok: false, error: `That video is hosted on ${result.host}. To save it anyway, paste the post link into ClipSnatcher and confirm there.` };
-    if (result.duplicate) result = { ok: false, error: `${result.error}. To save another copy, use Download again in ClipSnatcher's history.` };
+    const result = pageSaveResult(await startDownload(pageUrl, cleanHint({ titleHint: tab.title }, pageUrl), { tabId: tab.id, fromPage: true, expectSite: site || 'web' }));
     flashBadge(result.ok);
     rememberResult(result);
     tellTab(tab.id, site, result);

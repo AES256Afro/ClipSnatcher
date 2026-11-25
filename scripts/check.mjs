@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -50,6 +51,28 @@ if (manifest) {
   if (pkg.version !== version) problems.push(`package.json says ${pkg.version}, manifest.json says ${version}`);
   const changelog = fs.existsSync(path.join(root, 'CHANGELOG.md')) ? fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8') : '';
   if (!changelog.includes(`## ${version}`)) problems.push(`CHANGELOG.md has no "## ${version}" section`);
+
+  // Every permission is explained to users (privacy policy) and to store reviewers (the
+  // listing's justification table). A new permission without both fails here.
+  const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+  const privacy = read('PRIVACY.md');
+  const listing = read('store/listing.md');
+  for (const perm of [...(manifest.permissions || []), ...(manifest.optional_permissions || [])]) {
+    if (!privacy.includes('`' + perm + '`')) problems.push(`PRIVACY.md doesn't explain the "${perm}" permission (write it as \`${perm}\`)`);
+    if (!new RegExp(`^\\| ${perm.replace('.', '\\.')}( \\(optional\\))? \\|`, 'm').test(listing)) problems.push(`store/listing.md has no justification row for the "${perm}" permission`);
+  }
+
+  // The development extension ID follows from the manifest's "key". The copy helper's
+  // installers and the Settings page name it, so a new key must be carried to all of them.
+  if (manifest.key) {
+    const hash = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex');
+    const devId = [...hash.slice(0, 32)].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
+    for (const f of ['extension/options.js', 'native-helper/install.sh', 'native-helper/windows/install.ps1']) {
+      const ids = read(f).match(/\b[a-p]{32}\b/g) || [];
+      if (!ids.includes(devId)) problems.push(`${f} doesn't name the development extension ID ${devId} (from the manifest key)`);
+      for (const other of new Set(ids.filter((x) => x !== devId))) problems.push(`${f} names ${other}, but the manifest key gives ${devId}`);
+    }
+  }
 }
 
 if (problems.length) {

@@ -113,22 +113,23 @@ Only save videos you have the right to download.
 
 ## Development
 
-The extension has no build step: `extension/` is loaded into Chrome as it is. Node 20.3 or later is only needed to run the checks.
+The extension has no build step: `extension/` is loaded into Chrome as it is. Node 20.3 or later is only needed to run the checks. `npm ci` installs the two tools the type check uses (TypeScript and Chrome's type definitions); nothing from them ends up in the extension.
 
 ```bash
 npm test              # the automated tests
-npm run check         # every file parses, the manifest is valid, versions match
+npm run check         # every file parses, the manifest is valid, versions match, every permission is explained
+npm run typecheck     # checks the extension's JavaScript against its JSDoc types and Chrome's APIs
 npm run build         # makes dist/clipsnatcher-<version>.zip for the Chrome Web Store
-npm run test:browser  # 81 checks in a throwaway, invisible Chrome (needs Chrome, OpenSSL and internet)
+npm run test:browser  # checks in a throwaway, invisible Chrome (needs Chrome, OpenSSL and internet)
 ```
 
-GitHub runs the first three on every push, and runs the tests again on Windows, where the Windows copy helper's tests run too. One of those tests checks the real clipboard, so it is off unless you ask for it (in PowerShell: `$env:CLIPSNATCHER_CLIPBOARD_TEST = 1; npm test`); it replaces whatever you had copied. The browser checks run locally; see `browser-tests/run.mjs`.
+GitHub runs the first four on every push, and runs the tests again on Windows, where the Windows copy helper's tests run too. One of those tests checks the real clipboard, so it is off unless you ask for it (in PowerShell: `$env:CLIPSNATCHER_CLIPBOARD_TEST = 1; npm test`); it replaces whatever you had copied. The browser checks run locally; see `browser-tests/run.mjs`.
 
 ### Releasing a new version
 
 1. Set the new version in `extension/manifest.json` and `package.json`.
 2. Add a section for it at the top of `CHANGELOG.md`.
-3. Run `npm run check && npm test && npm run build`.
+3. Run `npm run check && npm run typecheck && npm test && npm run build`, and `npm run test:browser`.
 4. Commit, then tag it: `git tag v<version>` and push the tag with the commit.
 5. Upload `dist/clipsnatcher-<version>.zip` to the Chrome Web Store.
 
