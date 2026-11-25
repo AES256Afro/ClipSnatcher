@@ -76,8 +76,19 @@
       <p class="mac-only">Browsers can't put a video file on the clipboard by themselves. The optional helper is a small macOS script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing &#8984;C on it in Finder. It can also show that file in Finder. It accepts video files only.</p>
       <p class="win-only">Browsers can't put a video file on the clipboard by themselves. The optional helper is a small Windows PowerShell script that puts a video file you saved with ClipSnatcher on the clipboard, the same as pressing Ctrl+C on it in File Explorer. It can also show that file in File Explorer. It accepts video files only.</p>
       <p><span class="pill"><span class="dot" id="helperDot"></span><span id="helperText">Checking&hellip;</span></span></p>
-      <p class="mac-only">To install, <a href="https://github.com/AES256Afro/ClipSnatcher#install-about-1-minute" target="_blank" rel="noopener">get the project from GitHub</a>, then run this once in Terminal (no admin password needed). The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
-      <p class="win-only">To install, <a href="https://github.com/AES256Afro/ClipSnatcher#install-about-1-minute" target="_blank" rel="noopener">get the project from GitHub</a>, then run this once in PowerShell (no admin rights needed). The command assumes the project is in <span class="path">Projects\ClipSnatcher</span> in your user folder; change the path if you put it somewhere else.</p>
+      <!-- Installing from the project folder (the unpacked development copy). -->
+      <div id="helperFromProject" hidden>
+        <p class="mac-only">To install, run this once in Terminal from the project you loaded ClipSnatcher from (no admin password needed). The command assumes the project is in <span class="path">~/Projects/ClipSnatcher</span>; change the path if you put it somewhere else.</p>
+        <p class="win-only">To install, run this once in PowerShell from the project you loaded ClipSnatcher from (no admin rights needed). The command assumes the project is in <span class="path">Projects\ClipSnatcher</span> in your user folder; change the path if you put it somewhere else.</p>
+      </div>
+      <!-- Installing a download (every other copy, such as the Chrome Web Store one). -->
+      <ol id="helperFromDownload" class="steps" hidden>
+        <li><a class="btn" id="helperDownload" href="#" target="_blank" rel="noopener">Download the helper</a> <span class="note" id="helperZip"></span></li>
+        <li class="mac-only">Double-click the downloaded zip in Finder. It unzips into a <span class="path">clipsnatcher-helper-macos</span> folder in Downloads.</li>
+        <li class="win-only">In File Explorer, right-click the downloaded zip, choose <b>Extract All</b>, and keep the folder it suggests (<span class="path">clipsnatcher-helper-windows</span> in Downloads).</li>
+        <li class="mac-only">Open Terminal, paste this command and press Return. No admin password is needed. If you moved the folder, change the path in it.</li>
+        <li class="win-only">Open PowerShell, paste this command and press Enter. No admin rights are needed. If you extracted it somewhere else, change the path in it.</li>
+      </ol>
       <pre id="installCmd"></pre>
       <div class="check"><input type="checkbox" id="autoCopy"><label for="autoCopy">Copy each video to the clipboard as soon as it finishes saving<br><span class="note">Then paste straight into Discord. Needs the copy helper (set up above). If you save several at once, the last one to finish is on the clipboard.</span></label></div>
       <div class="buttons"><button class="btn" id="copyCmd" type="button">Copy command</button><button class="btn primary" id="enableHelper" type="button" hidden>Switch on the copy helper</button><button class="btn" id="recheck" type="button">Check again</button></div>

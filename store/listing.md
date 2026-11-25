@@ -9,7 +9,7 @@ Field names are from memory of the Developer Dashboard and may be worded slightl
    bash scripts/build-store-zip.sh
    ```
    Upload `dist/clipsnatcher-<version>.zip`.
-2. After the first upload, the dashboard shows the extension's store ID (32 letters). The helper only answers the IDs it is installed for, so install it for that copy (the store copy's Settings page shows this exact command):
+2. Store users get the copy helper from the GitHub release (pushing the version tag publishes it with `clipsnatcher-helper-macos.zip` and `clipsnatcher-helper-windows.zip`), and the store copy's Settings page shows them the download and the command with its own ID. To use the helper with the store copy on your own computer from this project instead, install it for the store ID the dashboard shows (32 letters):
    ```bash
    bash native-helper/install.sh <store-extension-id>
    ```

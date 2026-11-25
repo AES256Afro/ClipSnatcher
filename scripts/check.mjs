@@ -67,7 +67,7 @@ if (manifest) {
   if (manifest.key) {
     const hash = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex');
     const devId = [...hash.slice(0, 32)].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
-    for (const f of ['extension/options.js', 'native-helper/install.sh', 'native-helper/windows/install.ps1']) {
+    for (const f of ['extension/lib/helper-setup.js', 'native-helper/install.sh', 'native-helper/windows/install.ps1']) {
       const ids = read(f).match(/\b[a-p]{32}\b/g) || [];
       if (!ids.includes(devId)) problems.push(`${f} doesn't name the development extension ID ${devId} (from the manifest key)`);
       for (const other of new Set(ids.filter((x) => x !== devId))) problems.push(`${f} names ${other}, but the manifest key gives ${devId}`);
