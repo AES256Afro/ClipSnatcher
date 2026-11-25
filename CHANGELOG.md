@@ -2,7 +2,7 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
-## Unreleased
+## 1.5.2 (2026-11-25)
 
 - **One Save button per video, always.** A tab that was loading at the moment ClipSnatcher was installed or updated could end up with two copies of the page script, showing two Save buttons and every notice twice. A second copy now stays out while a working one is there.
 - **"Copy when saved" works the same for Reddit videos.** Whether a save is copied is now decided when it starts, for every kind of video. Before, a Reddit video checked the setting only when its merge finished, and skipped the limit that stops a web page from replacing the clipboard more than once every 10 seconds.
