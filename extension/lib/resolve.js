@@ -122,7 +122,9 @@ async function net(url, opts = {}, label) {
 
 /**
  * @param {string} input   an address; with `pasted`, any text a person typed or pasted
- * @param {object} hint    extra details from the page (already validated by the caller)
+ * @param {{ pageUrl?: string, postUrl?: string, videoSrc?: string, titleHint?: string, index?: number,
+ *   quoted?: boolean, packaged?: string, allowHost?: string, force?: boolean }} [hint]
+ *   extra details from the page (already validated by the caller)
  */
 export async function resolve(input, hint = {}, { pasted = false } = {}) {
   const raw = canonicalUrl(pasted ? extractUrl(input) : String(input || ''));
