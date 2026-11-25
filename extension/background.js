@@ -662,7 +662,9 @@ async function reconcile(downloadId, { quiet = false } = {}) {
     // record now says "cancelled" or "complete", which would hide the reason.
     if (e.error === 'REDIRECTED') return { state: 'interrupted' };
     const patch = { state: item.state };
-    if (item.filename) patch.path = item.filename;
+    // The file's path is recorded once the download is over: while it runs, history shows
+    // Chrome's live record, and writing the path early would cost a full history write.
+    if (item.filename && item.state !== 'in_progress') patch.path = item.filename;
     if (item.error) patch.error = item.error;
     if (item.state === 'complete') { patch.bytes = item.fileSize || item.totalBytes || 0; patch.error = ''; }
     return patch;
@@ -886,6 +888,7 @@ async function makeThumb(site, url) {
   const w = 160, h = Math.max(1, Math.round((bmp.height / bmp.width) * w));
   const canvas = new OffscreenCanvas(w, Math.min(h, 200));
   canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  bmp.close();                                   // a full-size picture can be several MB once decoded
   const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let bin = '';

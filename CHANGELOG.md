@@ -2,6 +2,12 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
+## Unreleased
+
+- **Faster saves with a long history.** Saving a video now writes history twice instead of three times, and updates that change nothing aren't written at all. With 5,000 videos in history, the reply to a save went from about 0.7 to 0.45 seconds on the test computer. The file's location is recorded when the download finishes.
+- Thumbnails free their memory as soon as they are made.
+- For developers: `node browser-tests/run.mjs perf` measures opening, searching and saving with 50 and 5,000 videos; the numbers and the decision to keep history in `chrome.storage.local` are in `docs/performance.md`.
+
 ## 1.6.0 (2026-11-25)
 
 - **Problems don't go unseen.** If a save fails while you're looking elsewhere (a Reddit merge that fails after you closed the tab, a download that breaks half-way), the toolbar icon now shows a red count until you open ClipSnatcher or its history, which list what went wrong. Before, the badge flashed for four seconds and the popup only mentioned the last result for 90 seconds.

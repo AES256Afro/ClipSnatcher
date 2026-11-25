@@ -20,6 +20,7 @@ const EXT_DIR = path.resolve(here, '../extension');
 const CDP_PORT = Number(process.env.CS_CDP_PORT) || 9333;
 const FAKE_PORT = Number(process.env.CS_FAKE_PORT) || 8443;
 const SUITES = ['downloads', 'page', 'upgrade'];
+const ON_REQUEST = ['perf'];   // measurements at 5,000 entries: run by name only
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : SUITES;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -82,7 +83,7 @@ const server = startFakeSites({ key: fs.readFileSync(keyFile), cert: fs.readFile
 const MAP = ['x.com', 'www.reddit.com', 'v.redd.it', 'evil.example', 'www.facebook.com', 'video-hou1-1.xx.fbcdn.net'].map((h) => `MAP ${h} 127.0.0.1:${FAKE_PORT}`).join(', ');
 const results = [];
 for (const suite of wanted) {
-  if (!SUITES.includes(suite)) { console.error(`Unknown suite "${suite}". Choose from: ${SUITES.join(', ')}`); process.exitCode = 2; continue; }
+  if (!SUITES.includes(suite) && !ON_REQUEST.includes(suite)) { console.error(`Unknown suite "${suite}". Choose from: ${[...SUITES, ...ON_REQUEST].join(', ')}`); process.exitCode = 2; continue; }
   console.log(`\n=== ${suite} ===`);
   const profile = path.join(work, `profile-${suite}`), downloads = path.join(work, `downloads-${suite}`);
   fs.mkdirSync(path.join(profile, 'Default'), { recursive: true });

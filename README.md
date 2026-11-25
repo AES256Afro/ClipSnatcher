@@ -50,7 +50,7 @@ If you installed ClipSnatcher from the Chrome Web Store, you don't need this pro
 | `native-helper/windows/` | The same helper for Windows (a PowerShell script) and its install/uninstall scripts |
 | `test/` | Automated tests (`npm test`) |
 | `browser-tests/` | Checks in real Chrome, with local stand-ins for Reddit and an outside host (`npm run test:browser`) |
-| `docs/` | The audit plan |
+| `docs/` | The audit plan, and performance with a full history (`docs/performance.md`) |
 
 ## Three ways to save a video
 
@@ -128,6 +128,8 @@ npm run typecheck     # checks the extension's JavaScript against its JSDoc type
 npm run build         # makes dist/clipsnatcher-<version>.zip for the Chrome Web Store
 npm run test:browser  # checks in a throwaway, invisible Chrome (needs Chrome, OpenSSL and internet)
 ```
+
+`node browser-tests/run.mjs perf` measures opening, searching and saving with 50 and with 5,000 videos in history; the results and what they decided are in [docs/performance.md](docs/performance.md).
 
 GitHub runs the first four on every push, and runs the tests again on Windows, where the Windows copy helper's tests run too. One of those tests checks the real clipboard, so it is off unless you ask for it (in PowerShell: `$env:CLIPSNATCHER_CLIPBOARD_TEST = 1; npm test`); it replaces whatever you had copied. The browser checks run locally; see `browser-tests/run.mjs`.
 
