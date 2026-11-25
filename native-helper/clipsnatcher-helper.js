@@ -5,6 +5,8 @@
 //   copyFile {path}     -> put that file on the clipboard (like Cmd+C in Finder)
 //   reveal   {path}     -> show that file in Finder
 // It only accepts video files that exist. No network access, nothing is logged.
+// Any folder is accepted, not only Downloads: Chrome's download location can be changed to
+// anywhere, and only the extension IDs named at install time can call this helper.
 ObjC.import('Foundation');
 ObjC.import('AppKit');
 

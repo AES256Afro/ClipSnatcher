@@ -133,6 +133,14 @@ export async function alreadySaved(history, r, item, { isMerging, lookup }) {
 
 /* ------------------------------------------------------- answers to a page */
 
+// The one line that says how a save went, for notices, the popup and the badge's message.
+export function describeSave(r) {
+  if (r.message) return r.message;
+  if (!r.ok) return r.error || 'Download failed.';
+  const what = r.count > 1 ? `${r.count} videos from: ${r.title}` : (r.title || 'video');
+  return `Download started: ${what}${r.detail ? ` (${r.detail})` : ''}${r.warning ? `. ${r.warning}` : ''}`;
+}
+
 // Right-click and keyboard saves can't ask questions: the yes/no for another host, and
 // "save another copy", only happen in the popup or history page.
 export function pageSaveResult(result) {

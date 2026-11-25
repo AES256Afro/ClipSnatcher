@@ -51,7 +51,7 @@ ClipSnatcher does not run in incognito windows.
 
 ## Optional copy helper (macOS and Windows)
 
-The optional helper is a small script you install yourself from this repository. It can do three things: confirm it is installed, copy a video file you saved to the clipboard, and show that file in Finder or File Explorer. It makes no network connections. Chrome only lets the extension IDs it was installed for call it, and it only accepts video files that exist on your computer.
+The optional helper is a small script you install yourself from this repository. It can do three things: confirm it is installed, copy a video file you saved to the clipboard, and show that file in Finder or File Explorer. It makes no network connections. Chrome only lets the extension IDs it was installed for call it, and it only accepts video files that exist on your computer. It doesn't limit itself to your Downloads folder, because Chrome's download location can be changed to any folder; ClipSnatcher only ever asks it about files it saved itself.
 
 ## Changes
 

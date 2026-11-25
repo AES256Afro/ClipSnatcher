@@ -247,8 +247,9 @@
       // A player outside every post (an ad, a recommendation) gets no post: we don't guess.
     } else if (SITE === 'facebook') {
       const p = location.pathname;
+      // The same page shapes the resolver accepts as one video (fbVideoId in lib/resolve.js).
       const onOneVideo = /\/videos\/(?:[^/]+\/)?\d{6,}\/?$/.test(p) || /^\/reel\/\d{6,}\/?$/.test(p)
-        || (/^\/watch\/?$/.test(p) && /^\d{6,}$/.test(new URLSearchParams(location.search).get('v') || ''));
+        || ((/^\/watch(\/live)?\/?$/.test(p) || p === '/video.php') && /^\d{6,}$/.test(new URLSearchParams(location.search).get('v') || ''));
       const onOnePost = /\/posts\/[A-Za-z0-9]+\/?$/.test(p) || /\/permalink\/\d+\/?$/.test(p) || p === '/permalink.php' || p === '/story.php'
         || /^\/share\/(?:[vrp]\/)?[A-Za-z0-9]+\/?$/.test(p);
       if (onOneVideo || onOnePost) {
@@ -300,7 +301,7 @@
       if (current === video && hostEl.style.display !== 'none') { clearTimeout(hideTimer); paint(); } else toast(res.error, 'info');
       return;
     }
-    const text = ok ? `Download started: ${res.title || 'video'}${res.detail ? ` (${res.detail})` : ''}${res.warning ? `. ${res.warning}` : ''}` : (res?.error || 'Something went wrong.');
+    const text = res?.message || res?.error || 'Something went wrong.';
     jobs.set(video, { state: ok ? 'ok' : 'err', text, clip, until: Date.now() + (ok ? RESULT_OK_MS : RESULT_ERR_MS) });
     // If the pointer has moved on (or the video scrolled away), say it in a notice instead.
     if (current === video && hostEl.style.display !== 'none') { clearTimeout(hideTimer); paint(); } else toast(text, ok ? 'ok' : 'err');
@@ -326,7 +327,7 @@
       pendingNotice?.remove();
       pendingNotice = null;
       if (r?.pending) { pendingNotice = toast('Finding the video\u2026', 'info'); return; }
-      toast(r?.message || (r?.ok ? `Download started: ${r.title || 'video'}${r.detail ? ` (${r.detail})` : ''}${r.warning ? `. ${r.warning}` : ''}` : (r?.error || 'Download failed.')), r?.ok ? 'ok' : 'err');
+      toast(r?.message || r?.error || 'Download failed.', r?.ok ? 'ok' : 'err');
     }
   });
 

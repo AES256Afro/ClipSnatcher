@@ -7,8 +7,15 @@ All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 - **One Save button per video, always.** A tab that was loading at the moment ClipSnatcher was installed or updated could end up with two copies of the page script, showing two Save buttons and every notice twice. A second copy now stays out while a working one is there.
 - **"Copy when saved" works the same for Reddit videos.** Whether a save is copied is now decided when it starts, for every kind of video. Before, a Reddit video checked the setting only when its merge finished, and skipped the limit that stops a web page from replacing the clipboard more than once every 10 seconds.
 - **Restoring a backup can't fill the disk.** Thumbnails in a backup are limited to the size ClipSnatcher itself makes (with room to spare), and restoring stops adding pictures once storage reaches 100 MB. The entries themselves are always restored.
+- **Right-click on a streamed video elsewhere** now says the site streams its video, so there's no single file to save, instead of telling you to open "the post itself".
+- **Facebook:** the Save button now works on `/video.php?v=` and `/watch/live/?v=` pages, which the right-click menu already handled.
+- **Copy the last saved video** (the shortcut) skips videos whose file was deleted and copies the newest one still there.
+- **Settings:** two changes made at nearly the same moment (a toggle clicked as the folder name saves) no longer drop one of them.
+- **Toolbar badge:** a result shown right after another now stays up for its full four seconds.
+- **Welcome page:** no longer asks you to reload tabs that were already open (unnecessary since 1.5.1), and describes what leaves your computer accurately.
+- Notices shown inside X, Reddit and Facebook pages now receive only their text, not the rest of the save's details.
 - The privacy policy now lists the `scripting` permission added in 1.5.1, and names every permission as Chrome does.
-- For developers: the rules that decide what a web page may ask for, which hosts need a yes, and what counts as saved before now live in `extension/lib/trust.js` with their own tests. `npm run check` fails if a permission isn't explained in PRIVACY.md and the store listing, or if the development extension ID no longer matches the manifest key. `npm run typecheck` checks the JavaScript against its JSDoc types, and runs on every push.
+- For developers: the rules that decide what a web page may ask for, which hosts need a yes, and what counts as saved before now live in `extension/lib/trust.js` with their own tests. `npm run check` fails if a permission isn't explained in PRIVACY.md and the store listing, or if the development extension ID no longer matches the manifest key. `npm run typecheck` checks the JavaScript against its JSDoc types, and runs on every push. CI's actions are pinned to exact commits, with Dependabot proposing updates. The Reddit merge queue has its own module and tests (`lib/slots.js`), and every "Download started" message comes from one place.
 
 ## 1.5.1 (2026-11-19)
 

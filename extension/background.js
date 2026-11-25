@@ -1,7 +1,8 @@
 // ClipSnatcher background worker. No analytics, no remote servers: it only talks to the
 // site that hosts the post you asked for, and to Chrome's own downloads system.
 import { resolve, detectSite, canonicalUrl, ResolveError, hostOf, isHttp, isPlaylist, isSiteMediaUrl, SITE_LABEL } from './lib/resolve.js';
-import { fromOwnPage as fromOwnPageOf, cleanHint, pageLimiter, copyLimiter, itemUrls, siteForSave, foreignUrl, redirectedAway, alreadySaved as alreadySavedIn, pageSaveResult } from './lib/trust.js';
+import { fromOwnPage as fromOwnPageOf, cleanHint, pageLimiter, copyLimiter, itemUrls, siteForSave, foreignUrl, redirectedAway, alreadySaved as alreadySavedIn, pageSaveResult, describeSave } from './lib/trust.js';
+import { slots } from './lib/slots.js';
 import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason, setThumb, migrateThumbs, pruneThumbs, cleanImportedEntry, validThumb, IMAGE_BUDGET_BYTES, MAX_HISTORY } from './lib/store.js';
 import { buildFilename } from './lib/names.js';
 import { chooseVariant } from './lib/quality.js';
@@ -30,6 +31,8 @@ const PAGE_MAX_PER_MINUTE = 12;    // saves started per tab per minute
 const NOTE_MAX = 500;              // characters in a note on a saved video
 const MERGES_AT_ONCE = 2;          // Reddit merges held in memory at the same time
 const MERGES_WAITING_MAX = 6;      // more than this queued and new Reddit merges are refused
+// Each merge holds a whole video in memory, so only a few run at a time.
+const merges = slots(MERGES_AT_ONCE);
 
 // Web pages (through the content script) must not be able to read history or settings.
 // Runs every time the worker starts; the empty onStartup listener makes sure that
@@ -78,6 +81,8 @@ async function reattachPages() {
   }
 }
 
+const STREAMED = 'This site streams its video in pieces, so there’s no single file to save. ClipSnatcher saves videos from X, Reddit and Facebook posts, and from links straight to a video file.';
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const tabId = tab?.id ?? null;
   const pageUrl = info.pageUrl || tab?.url || '';
@@ -114,7 +119,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 
   tellTab(tabId, site, { pending: true });      // instant feedback while the video is looked up
-  const result = pageSaveResult(await startDownload(url, hint, { tabId, fromPage: true, expectSite }));
+  // Off the three sites only a plain video file can be saved. Most players there stream
+  // (a blob: or playlist address), which has no one file behind it to save.
+  const streamed = !site && !url && info.menuItemId === 'cs-video';
+  const result = streamed ? { ok: false, error: STREAMED }
+    : pageSaveResult(await startDownload(url, hint, { tabId, fromPage: true, expectSite }));
   flashBadge(result.ok);
   rememberResult(result);
   // A post on another site may be private to the user: don't put its title or details
@@ -130,19 +139,23 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 async function tellTab(tabId, site, result) {
   if (tabId == null || !site) return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (tab && detectSite(tab.url || '') === site) chrome.tabs.sendMessage(tabId, { type: 'clipsnatcher:toast', result }, { frameId: 0 }).catch(() => {});
+  const shown = result.pending ? result : { ok: !!result.ok, message: describeSave(result) };   // the page gets the words, nothing more
+  if (tab && detectSite(tab.url || '') === site) chrome.tabs.sendMessage(tabId, { type: 'clipsnatcher:toast', result: shown }, { frameId: 0 }).catch(() => {});
 }
 
+// One timer for the badge, so a later result always gets its full four seconds.
+let badgeTimer = 0;
 function flashBadge(ok) {
   chrome.action.setBadgeBackgroundColor({ color: ok ? '#1a7f37' : '#cf222e' });
   chrome.action.setBadgeText({ text: ok ? '✓' : '!' });
-  setTimeout(() => chrome.action.setBadgeText({ text: '' }), 4000);
+  clearTimeout(badgeTimer);
+  badgeTimer = setTimeout(() => chrome.action.setBadgeText({ text: '' }), 4000);
 }
 
 // Pages without our script can't show a notice, so the popup shows the last result
 // when it is opened soon afterwards.
 function rememberResult(result) {
-  const text = result.message || (result.ok ? `Download started: ${result.title || 'video'}${result.detail ? ` (${result.detail})` : ''}${result.warning ? `. ${result.warning}` : ''}` : (result.error || 'Download failed.'));
+  const text = describeSave(result);
   chrome.storage.session.set({ lastResult: { text, ok: !!result.ok, at: Date.now() } }).catch(() => {});
 }
 
@@ -162,7 +175,7 @@ const PAGE_HANDLERS = {
       const res = await startDownload(hint.postUrl || hint.videoSrc || '', hint, { tabId: sender.tab?.id ?? null, fromPage: true, expectSite: detectSite(pageUrl) });
       // A web page learns only that the video was saved before, not when or what it was called.
       if (res.duplicate) return { ok: false, duplicate: true, busy: !!res.busy, error: res.busy ? 'Already being saved.' : 'Saved before.' };
-      if (!res.needsConfirm) return res;
+      if (!res.needsConfirm) return { ...res, message: describeSave(res) };
       // The yes/no has to happen somewhere a web page can't reach: the popup.
       return { ok: false, error: `This video is hosted on ${res.host}, not on ${SITE_LABEL[detectSite(pageUrl)]}. To save it anyway, paste the post link into ClipSnatcher (toolbar icon) and confirm there.` };
     } finally {
@@ -308,7 +321,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
     };
     try {
       if (item.kind === 'mux') {
-        if (merging + mergeWaiters.length >= MERGES_AT_ONCE + MERGES_WAITING_MAX) {
+        if (merges.load >= MERGES_AT_ONCE + MERGES_WAITING_MAX) {
           problems.push('Too many Reddit videos are being merged at once. Try again in a moment.');
           continue;
         }
@@ -446,19 +459,11 @@ async function restore(entries) {
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Each merge holds a whole video in memory, so only a few run at a time.
-let merging = 0;
-const mergeWaiters = [];
-async function withMergeSlot(fn) {
-  if (merging >= MERGES_AT_ONCE) await new Promise((go) => mergeWaiters.push(go));
-  merging++;
-  try { return await fn(); } finally { merging--; mergeWaiters.shift()?.(); }
-}
 
 // The hidden page closes itself when it has no jobs and no files in hand, so a
 // message can arrive just as it goes away. A short wait and a retry cover that.
 function mergeInOffscreen(item, jobId) {
-  return withMergeSlot(async () => {
+  return merges.run(async () => {
     let lastError = 'The merge page didn’t answer.';
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await pause(400);
@@ -603,7 +608,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     tellTab(tab.id, site, result);
   }
   if (command === 'copy-last') {
-    const last = (await getHistory()).find((e) => e.state === 'complete' && !e.imported);
+    const last = await lastSavedFile();
     if (!last) { flashBadge(false); return rememberResult({ ok: false, error: 'Nothing saved yet to copy.' }); }
     const r = await copyFile(last.id).catch((e) => ({ ok: false, error: e?.message }));
     flashBadge(r.ok);
@@ -612,6 +617,17 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     tellTab(tab?.id ?? null, detectSite(tab?.url || ''), { ok: r.ok, message: r.ok ? 'Last saved video copied to the clipboard.' : 'Couldn\u2019t copy the last saved video. Open ClipSnatcher for details.' });
   }
 });
+
+// The newest saved video whose file is still there. Files Chrome says were deleted are
+// skipped; if every recent one is gone, the newest is returned so the reason is shown.
+async function lastSavedFile() {
+  const done = (await getHistory()).filter((e) => e.state === 'complete' && !e.imported).slice(0, 25);
+  for (const e of done) {
+    const item = await downloadItemFor(e).catch(() => null);
+    if (!item || item.exists !== false) return e;
+  }
+  return done[0] || null;
+}
 
 async function findEntry(id) {
   const e = (await getHistory()).find((x) => x.id === id);
