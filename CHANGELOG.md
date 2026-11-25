@@ -2,7 +2,7 @@
 
 All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
-## Unreleased
+## 1.6.0 (2026-11-25)
 
 - **Problems don't go unseen.** If a save fails while you're looking elsewhere (a Reddit merge that fails after you closed the tab, a download that breaks half-way), the toolbar icon now shows a red count until you open ClipSnatcher or its history, which list what went wrong. Before, the badge flashed for four seconds and the popup only mentioned the last result for 90 seconds.
 - **Optional system notifications** for those problems, switched on in Settings. Chrome asks for the new optional `notifications` permission only then. Clicking a notification opens history.
