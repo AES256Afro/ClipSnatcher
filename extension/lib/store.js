@@ -50,11 +50,17 @@ export async function getSettings() {
   return { ...DEFAULT_SETTINGS, .../** @type {object} */ (settings || {}) };
 }
 
-export async function saveSettings(patch) {
-  const cur = await getSettings();
-  const next = { ...cur, ...patch };
-  await chrome.storage.local.set({ settings: next });
-  return next;
+// Changes are applied one after another, so two made at nearly the same moment (a toggle
+// clicked as the folder box saves) can't both start from the old settings and drop one.
+let settingsQueue = Promise.resolve();
+export function saveSettings(patch) {
+  const run = settingsQueue.then(async () => {
+    const next = { ...(await getSettings()), ...patch };
+    await chrome.storage.local.set({ settings: next });
+    return next;
+  });
+  settingsQueue = run.catch(() => {});
+  return run;
 }
 
 export async function getHistory() {

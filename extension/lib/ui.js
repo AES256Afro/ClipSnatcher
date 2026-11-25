@@ -1,6 +1,6 @@
 // Shared UI pieces for the popup and the history page.
-import { isEntryDownload, failureReason, getHistory, getThumbs, THUMB_PREFIX } from './store.js';
-import { FOLDER_NAMES as SITE_LABEL } from './names.js';
+import { isEntryDownload, failureReason, getHistory, getThumbs, THUMB_PREFIX, THUMB_OK } from './store.js';
+import { FOLDER_NAMES } from './names.js';
 
 export { getHistory, getThumbs };
 export const isThumbChange = (changes) => Object.keys(changes).some((k) => k.startsWith(THUMB_PREFIX));
@@ -137,8 +137,6 @@ function statusHTML(e, it, state, progress, compact) {
   return out;
 }
 
-const THUMB_OK = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
-
 /* ----------------------------------------------------------------- rendering */
 
 // Main buttons depend on what can actually be done with the file right now.
@@ -179,7 +177,7 @@ export function rowHTML(e, live, { compact = false, progress = {}, thumbs = new 
     ${thumb}
     <div class="meta">
       <div class="title" title="${title}">${title}</div>${note}
-      <div class="sub"><span class="badge ${esc(e.site)}">${SITE_LABEL[e.site] || 'Web'}</span>${e.author && !(compact && state !== 'ready') ? `<span class="author">${esc(e.author)}</span>` : ''}<span>${timeAgo(e.createdAt)}</span>${statusHTML(e, it, state, progress, compact)}</div>
+      <div class="sub"><span class="badge ${esc(e.site)}">${FOLDER_NAMES[e.site] || 'Web'}</span>${e.author && !(compact && state !== 'ready') ? `<span class="author">${esc(e.author)}</span>` : ''}<span>${timeAgo(e.createdAt)}</span>${statusHTML(e, it, state, progress, compact)}</div>
     </div>
     <div class="actions" role="group" aria-label="Actions for ${title}">${main}${compact ? '' : star}${more}</div>
   </div>`;

@@ -214,3 +214,10 @@ test('a backup entry keeps a file address only on its site\'s own media host, an
   const ok = store.cleanImportedEntry({ id: 'e2', title: 't', site: 'x', mediaUrl: 'https://video.twimg.com/a.mp4' });
   assert.equal(ok.mediaUrl, 'https://video.twimg.com/a.mp4');
 });
+
+test('saveSettings: two changes made at the same moment both stick', async () => {
+  await Promise.all([store.saveSettings({ folder: 'Clips' }), store.saveSettings({ perSite: false })]);
+  const s = await store.getSettings();
+  assert.equal(s.folder, 'Clips');
+  assert.equal(s.perSite, false);
+});

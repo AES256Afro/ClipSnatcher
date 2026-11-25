@@ -6,6 +6,8 @@
 #   reveal   {path}     -> show that file in File Explorer
 # It only accepts video files that exist on a drive of this computer. Links are followed to
 # the real file first, and the checks apply to that. No network access, nothing is logged.
+# Any folder is accepted, not only Downloads: Chrome's download location can be changed to
+# anywhere, and only the extension IDs named at install time can call this helper.
 # Keep this file plain ASCII: Windows PowerShell 5.1 reads it as ANSI.
 
 $ErrorActionPreference = 'Stop'

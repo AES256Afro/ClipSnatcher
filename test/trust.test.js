@@ -194,3 +194,13 @@ test('pageSaveResult: questions are turned into directions to the popup', () => 
   const ok = { ok: true, title: 'T' };
   assert.equal(pageSaveResult(ok), ok);
 });
+
+test('describeSave: one wording for every place a save is reported', async () => {
+  const { describeSave } = await import('../extension/lib/trust.js');
+  assert.equal(describeSave({ ok: true, title: 'T', count: 1 }), 'Download started: T');
+  assert.equal(describeSave({ ok: true, title: 'T', count: 3, detail: '720p version', warning: 'It will have no sound.' }), 'Download started: 3 videos from: T (720p version). It will have no sound.');
+  assert.equal(describeSave({ ok: true }), 'Download started: video');
+  assert.equal(describeSave({ ok: false, error: 'Nope.' }), 'Nope.');
+  assert.equal(describeSave({ ok: false }), 'Download failed.');
+  assert.equal(describeSave({ ok: true, message: 'Saved and copied.' }), 'Saved and copied.');
+});

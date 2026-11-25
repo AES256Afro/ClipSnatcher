@@ -1,4 +1,5 @@
 import { isPostUrl } from './lib/resolve.js';
+import { describeSave } from './lib/trust.js';
 import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes, runAction } from './lib/ui.js';
 
 /** @type {(id: string) => any} */
@@ -78,8 +79,7 @@ async function send(url, extra = {}) {
 // Shows what happened with one saved link and offers the follow-up choices.
 function report(url, r, extra) {
   if (r?.ok) {
-    const what = r.count > 1 ? `${r.count} videos from: ${r.title}` : r.title;
-    say(`Download started: ${what}${r.detail ? ` (${r.detail})` : ''}${r.warning ? `. ${r.warning}` : ''}`, r.warning ? '' : 'ok');
+    say(describeSave(r), r.warning ? '' : 'ok');
     $('url').value = '';
   } else if (r?.needsConfirm) {
     say(r.error);
