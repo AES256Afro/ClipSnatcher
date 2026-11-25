@@ -10,6 +10,7 @@
     "check": "node scripts/check.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "build": "bash scripts/build-store-zip.sh",
+    "build:helper": "bash scripts/build-helper-zips.sh",
     "test:browser": "node browser-tests/run.mjs"
   },
   "engines": {

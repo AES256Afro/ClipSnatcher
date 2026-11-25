@@ -1,6 +1,7 @@
 import { getSettings, saveSettings, getHistory, getThumbs, BACKUP_FORMAT } from './lib/store.js';
 import { buildFilename, sanitizeFolder } from './lib/names.js';
 import { ICON } from './lib/ui.js';
+import { helperSetup, helperZipName } from './lib/helper-setup.js';
 
 /** @type {(id: string) => any} */
 const $ = (id) => document.getElementById(id);
@@ -109,9 +110,6 @@ async function stats() {
 
 /* ---------------------------------------------------------------- copy helper */
 
-// The helper only answers extension IDs it was installed for. This copy's ID is added
-// to the command unless it is the project's own development ID (the installer's default).
-const DEV_ID = 'phdbcmaifcaagmfkmbdhokgmkldllajj';
 /** @type {chrome.permissions.Permissions} */
 const HELPER_PERMISSION = { permissions: ['nativeMessaging'] };
 
@@ -122,10 +120,15 @@ async function setUpHelper() {
   $('helperOn').hidden = !supported;
   $('helperOther').hidden = supported;
   if (!supported) return;
-  const ids = chrome.runtime.id === DEV_ID ? '' : ' ' + chrome.runtime.id;
-  $('installCmd').textContent = os === 'win'
-    ? 'powershell -ExecutionPolicy Bypass -File "$HOME\\Projects\\ClipSnatcher\\native-helper\\windows\\install.ps1"' + ids
-    : 'bash ~/Projects/ClipSnatcher/native-helper/install.sh' + ids;
+  // The helper only answers the extension IDs it was installed for (lib/helper-setup.js).
+  const how = helperSetup(os, chrome.runtime.id);
+  $('helperFromProject').hidden = !how.fromProject;
+  $('helperFromDownload').hidden = how.fromProject;
+  if (!how.fromProject) {
+    $('helperDownload').href = how.download;
+    $('helperZip').textContent = `(${helperZipName(os)}, from the project's GitHub releases)`;
+  }
+  $('installCmd').textContent = how.command;
   checkHelper();
 }
 

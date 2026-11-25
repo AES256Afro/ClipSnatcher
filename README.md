@@ -34,6 +34,8 @@ To update later, run `git pull` in the folder, then click the reload arrow on Cl
 
 Then open ClipSnatcher settings and click **Switch on the copy helper**. Chrome asks once for permission to talk to it.
 
+If you installed ClipSnatcher from the Chrome Web Store, you don't need this project: its Settings page links to `clipsnatcher-helper-macos.zip` or `clipsnatcher-helper-windows.zip` on the [latest release](https://github.com/AES256Afro/ClipSnatcher/releases/latest) and shows the one command to run, with your copy's ID in it.
+
 ## What's in this repo
 
 | Path | What it is |
@@ -136,6 +138,8 @@ GitHub runs the first four on every push, and runs the tests again on Windows, w
 3. Run `npm run check && npm run typecheck && npm test && npm run build`, and `npm run test:browser`.
 4. Commit, then tag it: `git tag v<version>` and push the tag with the commit.
 5. Upload `dist/clipsnatcher-<version>.zip` to the Chrome Web Store.
+
+Pushing the tag also runs `.github/workflows/release.yml`, which checks and tests that tag, then publishes a GitHub release with the store zip and the two copy helper downloads (`npm run build:helper` makes them locally). Settings links to those downloads, so every version tag needs its release.
 
 ## Licence
 
