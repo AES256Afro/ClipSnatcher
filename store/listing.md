@@ -24,7 +24,7 @@ The title and summary are read from the manifest, so there is nothing to paste f
 
 ## Store listing tab
 
-**Description**
+**Description** (for 1.7.0; for 1.6.0, leave out the sorting, Retry failed, size-limit button, saved quality and template sentences)
 
 ```
 ClipSnatcher saves videos from X (Twitter), Reddit and Facebook posts to your computer and keeps a searchable history of what you saved.
@@ -32,27 +32,30 @@ ClipSnatcher saves videos from X (Twitter), Reddit and Facebook posts to your co
 THREE WAYS TO SAVE
 • Hover over a video and click the Save button that appears
 • Right-click a video or a post link
-• Open the extension and paste a post link
+• Open the extension and paste a post link, or up to 20 at once. They keep saving even if you close the popup.
 
 SEARCHABLE HISTORY
-Every saved video is listed with its post title, author, site and date. Search by title, author, site or link. Click a thumbnail to play the video, or show it in its folder, open the original post, copy the link, download it again, or remove it with Undo. Rows show live download progress and say plainly when something failed.
+Every saved video is listed with its post title, author, site and date. Search by title, author, site, link or your own notes, and star your favourites. Sort by newest, oldest, largest or title, and see how much disk space your videos take. Click a thumbnail to play the video, or show it in its folder, open the original post, download it again, or remove it with Undo. Rows show live download progress and say plainly when something failed, and Retry failed tries every failed download again.
 
 SIZE THAT FITS
-Choose the best quality, a smaller version, or the best version under a size you pick, so a clip fits your chat app's upload limit. Already saved a post? ClipSnatcher tells you instead of saving it twice.
+Choose the best quality, a smaller version, or the best version under a size you pick, so a clip fits your chat app's upload limit. Need one clip small just this once? The popup's size-limit button saves it under your limit without changing the setting. History shows the quality each video was saved at. Already saved a post? ClipSnatcher tells you instead of saving it twice.
 
 ORGANIZED DOWNLOADS
-Videos are saved to a ClipSnatcher folder inside your Downloads folder, sorted by site, and named after the post.
+Videos are saved to a ClipSnatcher folder inside your Downloads folder, sorted by site, and named after the post. Or name them your way with a template such as {date} {author} - {title}.
 
 REDDIT VIDEOS WITH SOUND
 Reddit stores video and audio separately. ClipSnatcher joins them on your computer without re-encoding, so quality is unchanged.
 
+NOTHING FAILS UNNOTICED
+If a save fails while you're looking elsewhere, the toolbar icon shows a red count until you open ClipSnatcher, which says what went wrong. You can also turn on system notifications for this.
+
 PRIVATE BY DESIGN
 • No accounts, no analytics, no tracking
 • No servers: the extension talks only to the site hosting the post you chose
-• Your history is stored only in your browser and can be exported or cleared at any time
+• Your history is stored only in your browser. Back it up to a file, restore it on another computer, or clear it (with Undo)
 
 OPTIONAL: COPY A VIDEO TO THE CLIPBOARD (macOS and Windows)
-An optional helper, installed separately from the project's GitHub page, lets you copy a saved video file and paste it into chat apps.
+A small optional helper lets you copy a saved video and paste it straight into Discord and other chat apps. ClipSnatcher's Settings page links to the download and shows the one command to install it.
 
 Only save videos you have the right to download. ClipSnatcher does not work with YouTube.
 ```
@@ -120,6 +123,8 @@ No login is needed for the basic test.
 2. Paste this link and click Save: https://x.com/elonmusk/status/1585341984679469056
 3. The video downloads to Downloads/ClipSnatcher/X/.
 4. Click the clock icon in the popup to open the history page and search for "sink".
+5. Optional permission: open Settings, and under "When something goes wrong" tick "Also show a system notification". Chrome asks for the notifications permission only then.
+6. Size limit: paste the same link again and click "Under 10 MB" (it shows the limit set in Settings). It says the post was saved before; choose "Save again" to save the version under that size.
 The native messaging helper is optional and not required for any of the above.
 ```
 
