@@ -67,7 +67,7 @@ If a save fails while you're looking elsewhere (a Reddit merge that fails after 
 
 ## Quality and size
 
-In Settings, choose **Best available**, **Smaller** (720p or the next size down), or **the best version under N MB**. The last one is for chat apps with an upload limit: ClipSnatcher checks each version's size with the site and saves the best one that fits, or the smallest if none does, and tells you its size.
+In Settings, choose **Best available**, **Smaller** (720p or the next size down), or **the best version under N MB**. The last one is for chat apps with an upload limit: ClipSnatcher checks each version's size with the site and saves the best one that fits, or the smallest if none does, and tells you its size. For a one-off, the popup's **Under N MB** button saves just that link at your size limit, whatever Quality is set to. History shows the quality each video was saved at (for example `720p · 8.0 MB`).
 
 ## Favourites, notes and backups
 
@@ -75,13 +75,13 @@ Star a video and add a short note from its **More** menu; notes are searchable, 
 
 ## Where files go
 
-Files are saved to `Downloads/ClipSnatcher/<Site>/<author> - <post title> [id].mp4`. You can change the folder name and turn the per-site subfolders off in Settings.
+Files are saved to `Downloads/ClipSnatcher/<Site>/<author> - <post title> [id].mp4`. You can change the folder name and turn the per-site subfolders off in Settings. **File name** takes a template such as `{date} {author} - {title}`, using `{author}`, `{title}`, `{id}`, `{site}` and `{date}`; leave it empty for the usual name.
 
 Chrome extensions can only save inside Chrome's download location. To put everything somewhere else, change **Location** under Chrome Settings → Downloads. Also turn off "Ask where to save each file" there, or Chrome will ask you every time.
 
 ## History
 
-Click the clock icon in the popup. You can search by post title, author, site or link, and filter by site.
+Click the clock icon in the popup. You can search by post title, author, site or link, filter by site, and sort by newest, oldest, largest or title. The count above the list says how much disk space the listed files take. **Retry failed** tries every failed download again.
 
 Each row shows what you can do with that video right now:
 

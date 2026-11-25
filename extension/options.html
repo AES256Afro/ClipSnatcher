@@ -43,7 +43,10 @@
       <input type="text" id="folder" placeholder="(empty: save straight into Downloads)"></label>
     <p class="note">A video is saved as <span class="path" id="preview"></span><span id="previewNote"></span></p>
     <div class="check"><input type="checkbox" id="perSite"><label for="perSite">Separate subfolder per site (X, Reddit, Facebook)</label></div>
-    <div class="check"><input type="checkbox" id="authorInName"><label for="authorInName">Start file names with the author or subreddit when known</label></div>
+    <label class="field"><span>File name</span>
+      <input type="text" id="nameTemplate" placeholder="(empty: author - title [post id])" spellcheck="false" autocomplete="off" aria-describedby="nameHelp"></label>
+    <p class="note" id="nameHelp">Words in braces are filled in: <code>{author}</code>, <code>{title}</code>, <code>{id}</code> (the post's ID), <code>{site}</code> and <code>{date}</code> (the day you save it). For example <code>{date} {author} - {title}</code>. Leave it empty for the usual name.</p>
+    <div class="check"><input type="checkbox" id="authorInName"><label for="authorInName">Start file names with the author or subreddit when known <span class="note">(for the usual name)</span></label></div>
     <div class="buttons"><button class="btn" id="showFolder" type="button">Open the Downloads folder</button><button class="btn" id="chromeDownloads" type="button">Chrome's download settings</button></div>
     <p class="note">Chrome extensions can only save inside Chrome's download location. To put everything somewhere else, change "Location" in Chrome's download settings. Turn off "Ask where to save each file before downloading" there, or Chrome will ask every time.</p>
   </section>

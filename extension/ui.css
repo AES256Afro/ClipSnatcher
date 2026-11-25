@@ -94,6 +94,8 @@ button.thumb:hover .thumb-play, button.thumb:focus-visible .thumb-play { opacity
 .note-edit { height: 28px !important; margin-top: 4px; font-size: 12.5px !important; }
 .btn.star.on { color: #c98a00; }
 @media (prefers-color-scheme: dark) { .btn.star.on { color: #f0b429; } }
+/* X's own near-black badge disappears on a dark page; light on dark reads instead. */
+@media (prefers-color-scheme: dark) { .badge.x { background: #ececf1; color: #17171a; border-color: #ececf1; } }
 .sub .quiet { font-style: italic; }
 .actions { display: flex; gap: 2px; align-items: center; }
 .empty { color: var(--muted); text-align: center; padding: 24px 8px; }

@@ -17,6 +17,7 @@
   .chips { display: flex; gap: 4px; flex-wrap: wrap; }
   .chip { appearance: none; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 999px; height: 30px; padding: 0 12px; font: inherit; cursor: pointer; }
   .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  select.chip { appearance: auto; padding: 0 8px; }   /* keep the dropdown arrow */
   .count { color: var(--muted); font-size: 12.5px; margin: 4px 8px 6px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; min-height: 26px; }
   .row { grid-template-columns: 96px minmax(0, 1fr) auto; padding: 10px; }
   .thumb { width: 96px; height: 60px; }
@@ -35,6 +36,7 @@
   <header>
     <h1 class="brand"><img src="icons/48.png" alt="">ClipSnatcher history</h1>
     <div class="head-actions">
+      <button class="btn" id="retryFailed" type="button" title="Try every failed download again" hidden></button>
       <button class="btn" id="cleanup" type="button" title="Remove entries whose file has been moved or deleted">Tidy up</button>
       <a class="btn" href="options.html" id="settings"></a>
     </div>
@@ -49,6 +51,12 @@
       <button class="chip" data-site="web" aria-pressed="false">Other</button>
     </div>
     <button class="chip" id="favs" type="button" aria-pressed="false" title="Show only favourites">&#9733; Favourites</button>
+    <select id="sort" class="chip" aria-label="Sort saved videos">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="largest">Largest first</option>
+      <option value="title">Title A–Z</option>
+    </select>
   </div>
   <div class="count"><span id="count"></span><button class="btn small" id="clearFilters" type="button" hidden>Clear search and filter</button></div>
   <div id="list" role="list" aria-label="Saved videos"></div>
