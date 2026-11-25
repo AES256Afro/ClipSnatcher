@@ -1,5 +1,7 @@
 import { isPostUrl } from './lib/resolve.js';
 import { describeSave } from './lib/trust.js';
+import { splitLinks, MAX_BATCH } from './lib/batch.js';
+import { problemsSummary } from './lib/problems.js';
 import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes, runAction } from './lib/ui.js';
 
 /** @type {(id: string) => any} */
@@ -47,12 +49,46 @@ chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
   else $('url').focus();
 });
 
-// A right-click save on a page that can't show a notice leaves its result here.
-chrome.storage.session.get('lastResult').then((/** @type {{ lastResult?: { text: string, ok: boolean, at: number } }} */ { lastResult }) => {
-  if (!lastResult || Date.now() - lastResult.at > 90000) return;
-  say(lastResult.text, lastResult.ok ? 'ok' : 'err');
+// What happened while the popup was closed, most important first: a set of pasted links
+// still saving or just finished, problems waiting on the badge, or the last right-click
+// save's result. Showing problems here clears them from the badge.
+async function showWhatHappened() {
+  /** @type {{ batch?: any, problems?: { list?: { text: string }[] }, lastResult?: { text: string, ok: boolean, at: number } }} */
+  const got = await chrome.storage.session.get(['batch', 'problems', 'lastResult']).catch(() => ({}));
+  if (got.batch && showBatch(got.batch)) return;
+  const list = got.problems?.list || [];
+  if (list.length) {
+    say(problemsSummary(list), 'err');
+    $('status').classList.add('long');
+    chrome.runtime.sendMessage({ type: 'clipsnatcher:problems', clear: true }).catch(() => {});
+    chrome.storage.session.remove('lastResult').catch(() => {});
+    return;
+  }
+  const last = got.lastResult;
+  if (!last || Date.now() - last.at > 90000) return;
+  say(last.text, last.ok ? 'ok' : 'err');
   chrome.storage.session.remove('lastResult');
-}).catch(() => {});
+}
+showWhatHappened();
+
+// Shows a set of pasted links being saved, or its summary once finished. True if shown.
+function showBatch(batch) {
+  if (!batch?.urls?.length) return false;
+  if (batch.running) {
+    $('go').disabled = true;
+    say(`Saving ${Math.min(batch.results.length + 1, batch.urls.length)} of ${batch.urls.length}… You can close this window; saving carries on.`);
+    return true;
+  }
+  $('go').disabled = false;
+  if (!batch.summary) return false;
+  say(batch.summary.text, batch.summary.ok ? 'ok' : 'err');
+  $('status').classList.add('long');      // show every line of the summary
+  if (batch.summary.ok && $('url').value.trim() && splitLinks($('url').value).length > 1) $('url').value = '';
+  chrome.runtime.sendMessage({ type: 'clipsnatcher:batchSeen' }).catch(() => {});
+  chrome.runtime.sendMessage({ type: 'clipsnatcher:problems', clear: true }).catch(() => {});
+  return true;
+}
+chrome.storage.onChanged.addListener((c, area) => { if (area === 'session' && c.batch?.newValue) showBatch(c.batch.newValue); });
 
 // A question with buttons under the status line (for "download from another host?" and
 // "already saved"). `choices` is a list of { label, run }; null clears it.
@@ -112,39 +148,19 @@ async function save(url, extra = {}) {
   report(url, r, extra);
 }
 
-// Several links pasted at once are saved one after another. Questions (another host,
-// already saved) are not asked in a batch: those links are listed so they can be pasted alone.
-const MAX_BATCH = 20;
+// Several links pasted at once go to the background worker, which saves them one after
+// another whether or not this window stays open (lib/batch.js).
 async function saveMany(urls) {
   ask(null);
-  $('go').disabled = true;
-  const started = [], skipped = [], failed = [];
-  for (const [i, url] of urls.entries()) {
-    say(`Saving ${i + 1} of ${urls.length}… Keep this window open until it finishes.`);
-    const r = await send(url);
-    if (r?.ok) started.push(url);
-    else if (r?.duplicate) skipped.push('already saved');
-    else if (r?.needsConfirm) failed.push(`${shortLink(url)}: hosted on ${r.host}; paste it on its own to confirm`);
-    else failed.push(`${shortLink(url)}: ${r?.error || 'failed'}`);
-  }
-  $('go').disabled = false;
-  const parts = [`Started ${started.length} of ${urls.length}.`];
-  if (skipped.length) parts.push(`${skipped.length} already saved.`);
-  if (failed.length) parts.push(`Not saved: ${failed.join(' • ')}`);
-  say(parts.join(' '), failed.length ? 'err' : 'ok');
-  $('status').classList.add('long');      // show every line of the summary
-  if (!failed.length) $('url').value = '';
+  const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:batch', urls }).catch(() => null);
+  if (!r?.ok) say(r?.error || 'ClipSnatcher didn’t respond. Close this popup and try again.', 'err');
 }
-const shortLink = (u) => u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40) + (u.length > 48 ? '…' : '');
 
 $('form').addEventListener('submit', (e) => {
   e.preventDefault();
   const text = $('url').value.trim();
   if (!text) return say('Paste a link first.', 'err');
-  // A one-line box drops line breaks from pasted text, so links pasted one per line arrive
-  // glued together ("https://a.com/1https://b.com/2"): each "http" starts a new link.
-  // An address inside a link's query ("?u=https://…") is part of that link, not a new one.
-  const links = [...new Set((text.match(/https?:\/\/.+?(?=(?<![=&?%:])https?:\/\/|[\s<>"']|$)/gi) || []).map((u) => u.replace(/[)\].,;!?'"]+$/, '')))];
+  const links = splitLinks(text);
   if (links.length > MAX_BATCH) return say(`That's ${links.length} links. Paste up to ${MAX_BATCH} at a time.`, 'err');
   if (links.length > 1) return saveMany(links);
   save(text);

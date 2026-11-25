@@ -45,6 +45,7 @@ No request is ever made to a server belonging to this project, because there isn
 - **Offscreen document** (`offscreen`): to join Reddit's separate video and audio files on your computer.
 - **Scripting** (`scripting`): when ClipSnatcher is installed or updated, to add its own Save-button script again to X, Reddit and Facebook tabs that were already open, so Save keeps working without refreshing them. It only runs the script that ships inside the extension, only on those sites.
 - **Site access (X, Reddit, Facebook):** to show the Save button on videos, to look up the video file for the post you chose, and to pre-fill the popup with the address of the post you are on.
+- **Notifications (optional)** (`notifications`): not granted at install. Chrome asks you for it only if you switch on system notifications in Settings; then a notification appears when a save fails while you're looking elsewhere. Clicking it opens ClipSnatcher's history.
 - **Native messaging (optional)** (`nativeMessaging`): not granted at install. Chrome asks you for it only if you switch on the optional copy helper in Settings.
 
 ClipSnatcher does not run in incognito windows.

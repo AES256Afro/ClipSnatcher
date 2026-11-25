@@ -1,3 +1,4 @@
+import { problemsSummary } from './lib/problems.js';
 import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
 
 /** @type {(id: string) => any} */
@@ -149,3 +150,12 @@ document.addEventListener('keydown', (e) => {
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('q').value) { e.preventDefault(); $('q').value = ''; limit = PAGE; render(); } });
 
 load();
+
+// Problems that happened out of sight wait on the toolbar badge; opening history shows
+// them and clears the badge.
+chrome.storage.session.get('problems').then(({ problems }) => {
+  const list = /** @type {any} */ (problems)?.list || [];
+  if (!list.length) return;
+  say(problemsSummary(list), 'err');
+  chrome.runtime.sendMessage({ type: 'clipsnatcher:problems', clear: true }).catch(() => {});
+}).catch(() => {});

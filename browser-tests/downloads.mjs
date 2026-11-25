@@ -65,6 +65,14 @@ check('...and that save was reported as a failure, not as started', redirReply?.
 console.log('     (reply to that save was:', JSON.stringify(redirReply).slice(0, 150) + ')');
 r = await evalIn(page, `(() => { const row = [...document.querySelectorAll('.row')].find((el) => /redir1/.test(el.textContent)); return row ? row.querySelector('.sub').textContent : 'no row'; })()`);
 check('its history row says why it failed', /redirected to another site/.test(r || ''), JSON.stringify(r));
+// Problems that happen out of sight (here: the Reddit video whose sound couldn't be merged)
+// wait on the toolbar badge until the popup or history page takes them.
+r = await evalIn(page, `chrome.storage.session.get('problems').then((p) => (p.problems?.list || []).map((x) => x.text))`);
+let badge = await evalIn(page, `chrome.action.getBadgeText({})`);
+check('a problem that happened out of sight waits on the badge, as a count', r.some((t) => /without sound/.test(t)) && /^(\d|9\+)$/.test(badge), JSON.stringify([r, badge]));
+r = await msg({ type: 'clipsnatcher:problems', clear: true });
+badge = await evalIn(page, `chrome.action.getBadgeText({})`);
+check('...and taking them (as the popup and history do) clears the badge', r?.list?.length > 0 && badge === '', JSON.stringify([r, badge]));
 r = await evalIn(sw, `Promise.all([chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] }), chrome.storage.session.get('blobs')]).then(([c, b]) => ({ open: c.length, blobs: Object.keys(b.blobs || {}).length }))`);
 check('merge page closed itself and no merged files are left in memory', r?.open === 0 && r.blobs === 0, JSON.stringify(r));
 r = await evalIn(page, `import('./lib/store.js').then(async (s) => { const e = (await chrome.storage.local.get('history')).history.find((x) => x.site === 'x'); const [it] = await chrome.downloads.search({ id: e.downloadId }); return [s.isEntryDownload(e, it, chrome.runtime.id), s.isEntryDownload({ ...e, dlStart: '2020-01-01T00:00:00.000Z' }, it, chrome.runtime.id), s.isEntryDownload(e, { ...it, byExtensionId: 'someoneelse' }, chrome.runtime.id)]; })`);
@@ -214,8 +222,30 @@ check('an entry from a backup never blocks a real save as "already saved", and k
 r = await msg({ type: 'clipsnatcher:copyFile', id: 'imp-block' });
 check('Copy refuses a file path that only a backup vouches for', r?.ok === false && /came from a backup/.test(r.error || ''), JSON.stringify(r));
 
+// Several pasted links are saved by the background worker, so closing the popup straight
+// after pressing Save doesn't stop them.
+{
+  const pop = await openPage(`chrome-extension://${EXT}/popup.html`);
+  r = await evalIn(pop, `chrome.runtime.sendMessage({ type: 'clipsnatcher:batch', urls: ['https://evil.example/batch-one.mp4', 'https://evil.example/batch-two.mp4'] })`);
+  for (const t of (await send('Target.getTargets')).result.targetInfos.filter((x) => x.url.endsWith('/popup.html'))) await send('Target.closeTarget', { targetId: t.targetId });
+  await wait(5000);
+  const titles = (await history()).map((e) => e.title);
+  const batch = await evalIn(page, `chrome.storage.session.get('batch').then((b) => b.batch)`);
+  check('pasted links keep saving after the popup is closed', r?.ok === true && titles.includes('batch-one') && titles.includes('batch-two') && batch?.running === false && batch.summary?.text === 'Started 2 of 2.', JSON.stringify([r, titles.filter((t) => /batch/.test(t)), batch]));
+  r = await msg({ type: 'clipsnatcher:batch', urls: ['https://evil.example/batch-one.mp4', 'https://evil.example/batch-three.mp4'] });
+  await wait(4000);
+  const again = await evalIn(page, `chrome.storage.session.get('batch').then((b) => b.batch)`);
+  check('...and a link already saved is counted as skipped, not saved twice', again?.summary?.text === 'Started 1 of 2. 1 already saved.', JSON.stringify(again));
+}
+
+const beforeClear = (await history()).length;
 r = await msg({ type: 'clipsnatcher:clear' });
+const clearReply = r;
 check('clear history through the background', r?.ok === true && (await history()).length === 0);
+r = await msg({ type: 'clipsnatcher:undoClear' });
+check('Clear history can be undone: every entry comes back', clearReply.undo === true && clearReply.count === beforeClear && r?.ok === true && (await history()).length === beforeClear, JSON.stringify([clearReply, r, beforeClear]));
+r = await msg({ type: 'clipsnatcher:undoClear' });
+check('...once', r?.ok === false, JSON.stringify(r));
 check('no errors in the background worker', errorsFor(sw).length === 0, errorsFor(sw).join('\n'));
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

@@ -6,15 +6,25 @@ import { ICON } from './lib/ui.js';
 const $ = (id) => document.getElementById(id);
 $('historyLink').innerHTML = ICON.history + 'History';
 
-// A short notice at the bottom of the page. Errors stay until replaced.
+// A short notice at the bottom of the page, optionally with one button ({ label, run }).
+// Errors and notices with a button stay until replaced or dismissed.
 let noticeTimer;
-function say(text, kind = '') {
+function say(text, kind = '', action = null) {
   const n = $('notice');
   clearTimeout(noticeTimer);
   n.hidden = !text;
   n.className = 'notice ' + kind;
-  n.textContent = text;
-  if (text && kind !== 'err') noticeTimer = setTimeout(() => { n.hidden = true; }, 2200);
+  n.replaceChildren();
+  if (!text) return;
+  n.append(Object.assign(document.createElement('span'), { className: 'msg', textContent: text }));
+  if (action) {
+    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: action.label });
+    b.onclick = () => { say(''); action.run(); };
+    const close = Object.assign(document.createElement('button'), { type: 'button', className: 'close', textContent: '\u00d7' });
+    close.setAttribute('aria-label', 'Dismiss');
+    close.onclick = () => say('');
+    n.append(b, close);
+  } else if (kind !== 'err') noticeTimer = setTimeout(() => { n.hidden = true; }, 2200);
 }
 
 const TOGGLES = ['perSite', 'authorInName', 'hoverButton', 'autoCopy'];
@@ -24,6 +34,7 @@ async function init() {
   const s = await getSettings();
   $('folder').value = s.folder;
   for (const k of TOGGLES) $(k).checked = !!s[k];
+  $('notifyProblems').checked = !!s.notifyProblems && await chrome.permissions.contains(NOTIFY).catch(() => false);
   for (const r of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="quality"]'))) r.checked = r.value === s.quality;
   $('maxMB').value = s.maxMB;
   preview();
@@ -58,6 +69,19 @@ $('folder').addEventListener('input', () => {
 for (const k of TOGGLES) {
   $(k).addEventListener('change', async () => { preview(); await saveSettings({ [k]: $(k).checked }); say('Saved', 'ok'); });
 }
+// System notifications need Chrome's permission, asked for right inside the click.
+/** @type {chrome.permissions.Permissions} */
+const NOTIFY = { permissions: ['notifications'] };
+$('notifyProblems').addEventListener('change', async () => {
+  const on = $('notifyProblems').checked;
+  if (on && !(await chrome.permissions.request(NOTIFY).catch(() => false))) {
+    $('notifyProblems').checked = false;
+    return say('Chrome didn’t grant the permission, so notifications stay off.', 'err');
+  }
+  await saveSettings({ notifyProblems: on });
+  if (!on) chrome.permissions.remove(NOTIFY).catch(() => {});
+  say('Saved', 'ok');
+});
 for (const r of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="quality"]'))) {
   r.addEventListener('change', async () => { if (r.checked) { await saveSettings({ quality: r.value }); say('Saved', 'ok'); } });
 }
@@ -174,10 +198,19 @@ $('importFile').addEventListener('change', async () => {
   say(parts.join(' '), invalid || full ? 'err' : 'ok');
 });
 $('clear').onclick = async () => {
-  if (!confirm('Clear all ClipSnatcher history? Your video files are not deleted.')) return;
-  await chrome.runtime.sendMessage({ type: 'clipsnatcher:clear' });
+  if (!confirm('Clear all ClipSnatcher history? Your video files are not deleted.\n\nYou can undo this until you close Chrome. To keep a copy for good, use Back up history first.')) return;
+  const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:clear' }).catch(() => null);
   stats();
-  say('History cleared', 'ok');
+  if (!r?.ok) return say('Couldn’t clear history. Try again.', 'err');
+  if (!r.undo) return say('History cleared', 'ok');
+  say(`Cleared ${r.count} video${r.count === 1 ? '' : 's'} from history.`, 'ok', {
+    label: 'Undo',
+    run: async () => {
+      const back = await chrome.runtime.sendMessage({ type: 'clipsnatcher:undoClear' }).catch(() => null);
+      stats();
+      say(back?.ok ? `Put back ${back.restored} video${back.restored === 1 ? '' : 's'}.` : (back?.error || 'Couldn’t put history back.'), back?.ok ? 'ok' : 'err');
+    },
+  });
 };
 
 init();
