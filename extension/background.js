@@ -5,6 +5,8 @@ import { fromOwnPage as fromOwnPageOf, cleanHint, pageLimiter, copyLimiter, item
 import { addProblem, badgeText } from './lib/problems.js';
 import { cleanBatch, outcome, summary } from './lib/batch.js';
 import { slots } from './lib/slots.js';
+import { shrinkImage } from './lib/thumbs.js';
+import { QUALITIES } from './lib/quality.js';
 import { getSettings, getHistory, addEntry, updateEntry, updateByDownload, removeEntries, restoreEntries, clearHistory, failStaleMerges, isEntryDownload, failureReason, setThumb, migrateThumbs, pruneThumbs, cleanImportedEntry, validThumb, IMAGE_BUDGET_BYTES, MAX_HISTORY } from './lib/store.js';
 import { buildFilename } from './lib/names.js';
 import { chooseVariant } from './lib/quality.js';
@@ -245,10 +247,12 @@ const PAGE_HANDLERS = {
   'clipsnatcher:settings': async () => ({ hoverButton: (await getSettings()).hoverButton !== false }),
 };
 
+// A one-off quality for this save (the popup's "Under N MB" button), instead of the setting.
+const qualityFrom = (msg) => (QUALITIES.includes(msg.quality) ? msg.quality : '');
 const allowHostFrom = (msg) => (typeof msg.allowHost === 'string' ? msg.allowHost.slice(0, 255).toLowerCase() : '');
 
 const OWN_HANDLERS = {
-  'clipsnatcher:download': (msg) => startDownload(String(msg.url || ''), { allowHost: allowHostFrom(msg), force: msg.force === true }, { pasted: true }),
+  'clipsnatcher:download': (msg) => startDownload(String(msg.url || ''), { allowHost: allowHostFrom(msg), force: msg.force === true }, { pasted: true, quality: qualityFrom(msg) }),
   'clipsnatcher:redownload': (msg) => redownload(msg.id, allowHostFrom(msg)),
   'clipsnatcher:copyFile': (msg) => copyFile(msg.id),
   'clipsnatcher:reveal': (msg) => revealViaHelper(msg.id),
@@ -263,7 +267,7 @@ const OWN_HANDLERS = {
   'clipsnatcher:clear': () => clearAll(),
   'clipsnatcher:undoClear': () => undoClear(),
   'clipsnatcher:problems': (msg) => takeProblems(msg.clear === true),
-  'clipsnatcher:batch': (msg) => startBatch(msg.urls),
+  'clipsnatcher:batch': (msg) => startBatch(msg.urls, qualityFrom(msg)),
   'clipsnatcher:batchSeen': () => batchSeen(),
   // Sent by the hidden merge page. Also keeps this worker awake during long merges.
   'clipsnatcher:progress': async (msg) => {
@@ -338,7 +342,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
 
   // Pick the version of each video the quality setting asks for. Sizes are looked up only
   // on the site's own media host, so no other host is contacted before the user agrees.
-  const settings = await getSettings();
+  const settings = { ...(await getSettings()), ...(ctx.quality ? { quality: ctx.quality } : {}) };
   const notes = [];
   let overLimit = '';
   r.items = await Promise.all(r.items.map(async (item) => {
@@ -379,6 +383,7 @@ async function startDownload(url, hint = {}, ctx = {}) {
       id: crypto.randomUUID(),
       title: r.title, author: r.author, site: r.site, sourceUrl: r.sourceUrl,
       postId: String(r.id || ''), mediaUrl, mediaHost: hostOf(mediaUrl), index: item.index, noAudio: !!item.noAudio,
+      height: Number.isInteger(item.height) && item.height > 0 ? item.height : 0,   // the quality saved, when the site says (720 for 720p)
       whole: item.kind === 'direct' && !item.noAudio,   // false when mediaUrl is only the picture track
       filename, path: null, downloadId: null, dlStart: null,
       state: 'in_progress', error: '', bytes: 0, createdAt: Date.now(),
@@ -544,12 +549,12 @@ async function undoClear() {
 // popup doesn't stop them. Progress and the summary live in session storage, where the
 // popup reads them, and a batch cut off by the worker stopping carries on when it starts.
 let batchRunning = false;
-async function startBatch(urls) {
+async function startBatch(urls, quality = '') {
   const list = cleanBatch(urls);
   if (list.length < 2) return { ok: false, error: 'Paste two or more links to save them together.' };
   const { batch } = /** @type {any} */ (await chrome.storage.session.get('batch'));
   if (batch?.running) return { ok: false, error: 'Another set of links is still being saved. Wait for it to finish, then try again.' };
-  await chrome.storage.session.set({ batch: { urls: list, results: [], running: true, at: Date.now() } });
+  await chrome.storage.session.set({ batch: { urls: list, quality, results: [], running: true, at: Date.now() } });
   runBatch();
   return { ok: true, total: list.length };
 }
@@ -572,7 +577,7 @@ async function runBatch() {
       const url = batch.urls[batch.results.length];
       // A link that was being saved when the worker stopped is tried again; if it had got
       // far enough, it now counts as "already saved".
-      const r = await startDownload(url, {}, { pasted: true }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+      const r = await startDownload(url, {}, { pasted: true, quality: batch.quality || '' }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
       batch.results.push(outcome(url, r));
       await chrome.storage.session.set({ batch });
     }
@@ -884,14 +889,5 @@ async function helperStatus() {
 async function makeThumb(site, url) {
   const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
   if (!res.ok || !isSiteMediaUrl(site, res.url || url)) return null;   // also refuses a redirect off the site's media host
-  const bmp = await createImageBitmap(await res.blob());
-  const w = 160, h = Math.max(1, Math.round((bmp.height / bmp.width) * w));
-  const canvas = new OffscreenCanvas(w, Math.min(h, 200));
-  canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
-  bmp.close();                                   // a full-size picture can be several MB once decoded
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return 'data:image/jpeg;base64,' + btoa(bin);
+  return shrinkImage(await res.blob());
 }

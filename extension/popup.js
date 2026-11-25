@@ -1,5 +1,6 @@
 import { isPostUrl } from './lib/resolve.js';
 import { describeSave } from './lib/trust.js';
+import { getSettings } from './lib/store.js';
 import { splitLinks, MAX_BATCH } from './lib/batch.js';
 import { problemsSummary } from './lib/problems.js';
 import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes, runAction } from './lib/ui.js';
@@ -26,6 +27,8 @@ async function openHistory() {
 $('openHistory').onclick = openHistory;
 $('all').onclick = (e) => { e.preventDefault(); openHistory(); };
 $('openSettings').onclick = () => chrome.runtime.openOptionsPage();
+
+const setBusy = (busy) => { $('go').disabled = busy; $('small').disabled = busy; };
 
 // Shows a message, optionally with one button ({ label, run }).
 function say(text, kind = '', action = null) {
@@ -75,11 +78,11 @@ showWhatHappened();
 function showBatch(batch) {
   if (!batch?.urls?.length) return false;
   if (batch.running) {
-    $('go').disabled = true;
+    setBusy(true);
     say(`Saving ${Math.min(batch.results.length + 1, batch.urls.length)} of ${batch.urls.length}… You can close this window; saving carries on.`);
     return true;
   }
-  $('go').disabled = false;
+  setBusy(false);
   if (!batch.summary) return false;
   say(batch.summary.text, batch.summary.ok ? 'ok' : 'err');
   $('status').classList.add('long');      // show every line of the summary
@@ -141,18 +144,18 @@ async function showEntry(id) {
 
 async function save(url, extra = {}) {
   ask(null);
-  $('go').disabled = true;
+  setBusy(true);
   say('Finding the video…');
   const r = await send(url, extra);
-  $('go').disabled = false;
+  setBusy(false);
   report(url, r, extra);
 }
 
 // Several links pasted at once go to the background worker, which saves them one after
 // another whether or not this window stays open (lib/batch.js).
-async function saveMany(urls) {
+async function saveMany(urls, extra = {}) {
   ask(null);
-  const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:batch', urls }).catch(() => null);
+  const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:batch', urls, ...extra }).catch(() => null);
   if (!r?.ok) say(r?.error || 'ClipSnatcher didn’t respond. Close this popup and try again.', 'err');
 }
 
@@ -162,9 +165,15 @@ $('form').addEventListener('submit', (e) => {
   if (!text) return say('Paste a link first.', 'err');
   const links = splitLinks(text);
   if (links.length > MAX_BATCH) return say(`That's ${links.length} links. Paste up to ${MAX_BATCH} at a time.`, 'err');
-  if (links.length > 1) return saveMany(links);
-  save(text);
+  // "Under N MB" saves this time's video(s) at the size limit, whatever Quality is set to.
+  const extra = /** @type {SubmitEvent} */ (e).submitter?.id === 'small' ? { quality: 'fit' } : {};
+  if (links.length > 1) return saveMany(links, extra);
+  save(text, extra);
 });
+getSettings().then((s) => {
+  $('small').textContent = `Under ${s.maxMB} MB`;
+  $('small').title = `Save the best version under ${s.maxMB} MB this time (for chat apps with an upload limit). Change the limit in Settings.`;
+}).catch(() => {});
 
 const EMPTY = '<div class="empty">Nothing saved yet. Point at a video on X, Reddit or Facebook and press <b>Save</b>, or paste a post link above.</div>';
 let entries = [], live = new Map(), renderNo = 0, progressTimer = 0;

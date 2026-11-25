@@ -180,6 +180,15 @@ const qFile = onDisk().map((f) => DL + '/' + f).find((f) => f.endsWith(qEntry?.p
 const qSize = qFile ? fs.statSync(qFile).size : 0;
 check('"Fit under 1 MB" picks a version that really is under 1 MB, using sizes from the site', r?.ok === true && qHeight > 0 && qHeight <= 360 && qSize > 0 && qSize <= 1048576 && /MB/.test(r.detail || ''), JSON.stringify([r, qHeight, qSize]));
 await setSettings({ quality: 'best' });
+// --- Milestone 10
+// The popup's "Under N MB" button: this save only, whatever Quality is set to.
+r = await msg({ type: 'clipsnatcher:download', url: XPOST, force: true, quality: 'fit' });
+await wait(3500);
+let oneOff = await evalIn(page, `chrome.storage.local.get(['history', 'settings']).then((s) => ({ e: s.history[0], quality: s.settings.quality }))`);
+const oneOffHeight = Number((oneOff?.e?.mediaUrl || '').match(/\/\d+x(\d+)\//)?.[1] || 0);
+check('a one-off "under N MB" save picks the small version and leaves the Quality setting alone', r?.ok === true && oneOffHeight > 0 && oneOffHeight <= 360 && /MB/.test(r.detail || '') && oneOff.quality === 'best', JSON.stringify([r, oneOffHeight, oneOff?.quality]));
+r = await evalIn(page, `new Promise((done) => setTimeout(() => { const row = [...document.querySelectorAll('.row')].find((el) => el.dataset.id === ${JSON.stringify(oneOff.e.id)}); done(row ? row.querySelector('.sub').textContent : null); }, 600))`);
+check('its history row shows the quality saved next to the size', new RegExp(`${oneOff.e.height}p · [\\d.]+ (KB|MB)`).test(r || '') && oneOff.e.height === oneOffHeight, JSON.stringify([r, oneOff.e.height]));
 r = await evalIn(sw, `fetch('https://video.twimg.com/ext_tw_video/1585341912877146112/pu/vid/640x360/UOvGixKQhzYgqVGG.mp4?tag=14', { method: 'HEAD', redirect: 'error' }).then((res) => ({ status: res.status, length: res.headers.get('content-length') }), (e) => ({ error: String(e) }))`);
 console.log('     (size lookup on X from the background worker:', JSON.stringify(r) + ')');
 check('the background worker can read real file sizes from X (fit does not rely on estimates alone)', Number(r?.length) > 0, JSON.stringify(r));
@@ -221,6 +230,60 @@ r = await msg({ type: 'clipsnatcher:download', url: 'https://www.reddit.com/r/te
 check('an entry from a backup never blocks a real save as "already saved", and keeps no foreign file address', r?.ok === true && planted && planted.mediaUrl === '', JSON.stringify([r, planted?.mediaUrl]));
 r = await msg({ type: 'clipsnatcher:copyFile', id: 'imp-block' });
 check('Copy refuses a file path that only a backup vouches for', r?.ok === false && /came from a backup/.test(r.error || ''), JSON.stringify(r));
+
+// Portrait thumbnails show the middle of the picture: a tall image that is red at the top,
+// green in the middle and blue at the bottom must come out green from edge to edge.
+r = await evalIn(page, `(async () => {
+  const c = new OffscreenCanvas(160, 400), g = c.getContext('2d');
+  g.fillStyle = '#f00'; g.fillRect(0, 0, 160, 90); g.fillStyle = '#0f0'; g.fillRect(0, 90, 160, 220); g.fillStyle = '#00f'; g.fillRect(0, 310, 160, 90);
+  const { shrinkImage } = await import('./lib/thumbs.js');
+  const url = await shrinkImage(await c.convertToBlob({ type: 'image/png' }));
+  const bmp = await createImageBitmap(await (await fetch(url)).blob());
+  const d = new OffscreenCanvas(bmp.width, bmp.height); const dg = d.getContext('2d'); dg.drawImage(bmp, 0, 0);
+  const px = (y) => [...dg.getImageData(80, y, 1, 1).data].slice(0, 3);
+  return { w: bmp.width, h: bmp.height, top: px(2), middle: px(100), bottom: px(197) };
+})()`);
+const green = (p) => p && p[1] > 180 && p[0] < 80 && p[2] < 80;
+check('portrait thumbnails are cut equally top and bottom, so the middle shows', r?.w === 160 && r.h === 200 && green(r.top) && green(r.middle) && green(r.bottom), JSON.stringify(r));
+
+// The X badge stays readable in dark mode.
+await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] }, page);
+r = await evalIn(page, `(() => {
+  const lum = (c) => { const [r, g, b] = c.match(/\\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const badge = document.querySelector('.badge.x'); if (!badge) return null;
+  const a = lum(getComputedStyle(badge).backgroundColor), b = lum(getComputedStyle(document.body).backgroundColor);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+})()`);
+await send('Emulation.setEmulatedMedia', { features: [] }, page);
+check('in dark mode the X badge stands out from the page (contrast 3:1 or more)', r >= 3, String(r));
+
+// Sorting history, and the disk space the listed files take.
+r = await evalIn(page, `new Promise((done) => {
+  const s = document.getElementById('sort'); s.value = 'oldest'; s.dispatchEvent(new Event('change'));
+  setTimeout(async () => {
+    const h = (await chrome.storage.local.get('history')).history; const oldest = [...h].sort((a, b) => a.createdAt - b.createdAt)[0];
+    const first = document.querySelector('#list .row')?.dataset.id;
+    s.value = 'newest'; s.dispatchEvent(new Event('change'));
+    done({ ok: first === oldest.id, count: document.getElementById('count').textContent });
+  }, 500);
+})`);
+check('history sorts oldest first on request, and says how much disk space the files take', r?.ok === true && /on disk/.test(r.count), JSON.stringify(r));
+
+// File-name templates.
+await setSettings({ nameTemplate: '{site}_{id}' });
+r = await msg({ type: 'clipsnatcher:download', url: 'https://evil.example/template-check.mp4' });
+await wait(2500);
+const tEntry = await evalIn(page, `chrome.storage.local.get('history').then(h => h.history.find((e) => e.title === 'template-check'))`);
+await setSettings({ nameTemplate: '' });
+check('a file-name template names the saved file', r?.ok === true && /[\\/]Web_[a-z0-9]+\.mp4$/.test(tEntry?.path || ''), JSON.stringify([r, tEntry?.path]));
+
+// "Retry failed" in history tries every failed download again.
+await evalIn(page, `chrome.storage.local.get('history').then((h) => chrome.storage.local.set({ history: [{ id: 'retry-1', title: 'Retry me', author: '', site: 'web', sourceUrl: 'https://evil.example/retry-me.mp4', mediaUrl: 'https://evil.example/retry-me.mp4', mediaHost: 'evil.example', index: 1, noAudio: false, whole: true, filename: 'x.mp4', path: null, downloadId: null, dlStart: null, state: 'interrupted', error: 'NETWORK_FAILED', bytes: 0, createdAt: Date.now() }, ...h.history] }))`);
+await wait(900);
+r = await evalIn(page, `(() => { const b = document.getElementById('retryFailed'); const shown = !b.hidden && /Retry failed \\(\\d+\\)/.test(b.textContent); b.click(); return shown; })()`);
+await wait(4000);
+const retried = await evalIn(page, `chrome.storage.local.get('history').then(h => h.history.filter((e) => /retry-me/.test(e.sourceUrl)).map((e) => ({ id: e.id, state: e.state })))`);
+check('"Retry failed" saves the failed download again and replaces its failed row', r === true && retried.length === 1 && retried[0].id !== 'retry-1' && retried[0].state === 'complete', JSON.stringify([r, retried]));
 
 // Several pasted links are saved by the background worker, so closing the popup straight
 // after pressing Save doesn't stop them.

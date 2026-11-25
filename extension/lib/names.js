@@ -32,19 +32,40 @@ export function extensionFor(item) {
   return (path.match(/\.(mp4|webm|mov|m4v)$/i)?.[1] || 'mp4').toLowerCase();
 }
 
+// The words a file-name template may use, each replaced by part of the post.
+export const NAME_TOKENS = ['author', 'title', 'id', 'site', 'date'];
+
+// The date a video is saved, as 2026-11-25 in the computer's own time zone.
+const isoDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+// A file name from a template like "{date} {author} - {title}". Each part is cleaned on its
+// own, then the whole name again (the template's own text may hold characters files can't
+// have). Separators left hanging by an empty part ("{author} - " with no author) and empty
+// brackets are dropped. Unknown {words} are kept as written.
+export function applyTemplate(template, parts) {
+  const filled = String(template).replace(/\{(\w+)\}/g, (m, k) => (NAME_TOKENS.includes(k) ? parts[k] || '' : m));
+  return sanitize(filled.replace(/\[\s*\]|\(\s*\)/g, ' ').replace(/^[\s\-_–—,.;]+|[\s\-_–—,.;]+$/g, '').replace(/\s+([\-–—])\s+(?=[\-–—])/g, ' '), 150);
+}
+
 /**
  * The path, relative to Chrome's Downloads folder, a video is saved to.
- * @param {{ folder: string, perSite: boolean, authorInName: boolean }} settings
+ * @param {{ folder: string, perSite: boolean, authorInName: boolean, nameTemplate?: string }} settings
+ *   nameTemplate: the file name with {author} {title} {id} {site} {date}; empty for the usual name
  * @param {{ site: string, title: string, author: string, id: string }} post
  * @param {{ kind: string, url?: string, index: number }} item
  * @param {number} total  how many videos the post has
+ * @param {number} [now]  when it is saved (for {date})
  */
-export function buildFilename(settings, post, item, total) {
+export function buildFilename(settings, post, item, total, now = Date.now()) {
   const folder = sanitizeFolder(settings.folder);
   const sub = settings.perSite ? FOLDER_NAMES[post.site] || 'Web' : '';
-  const author = settings.authorInName && post.author ? sanitize(post.author.replace(/^@/, '').replace(/\//g, '-'), 30) + ' - ' : '';
+  const authorText = post.author ? sanitize(post.author.replace(/^@/, '').replace(/\//g, '-'), 30) : '';
   const name = sanitize(post.title) || 'video';
+  const id = sanitize(post.id, 24) || 'video';
   const suffix = total > 1 ? ` (${item.index})` : '';
-  const file = `${author}${name} [${sanitize(post.id, 24) || 'video'}]${suffix}.${extensionFor(item)}`;
-  return [folder, sub, file].filter(Boolean).join('/');
+  const template = String(settings.nameTemplate || '').trim();
+  const stem = template
+    ? applyTemplate(template, { author: authorText, title: name, id, site: FOLDER_NAMES[post.site] || 'Web', date: isoDay(now) }) || name
+    : `${settings.authorInName && authorText ? authorText + ' - ' : ''}${name} [${id}]`;
+  return [folder, sub, `${stem}${suffix}.${extensionFor(item)}`].filter(Boolean).join('/');
 }

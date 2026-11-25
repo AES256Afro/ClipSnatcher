@@ -129,8 +129,9 @@ function statusHTML(e, it, state, progress, compact) {
     out = `<span class="bad" title="${esc(full)}">${compact && why !== 'cancelled' ? 'Failed' : esc(full)}</span>`;
   } else if (state === 'missing') out = `<span class="bad" title="File moved or deleted">${compact ? 'File missing' : 'File moved or deleted'}</span>`;
   else {
-    const size = fmtBytes(it?.fileSize || e.bytes);
-    if (size && !(compact && e.noAudio)) out = `<span>${size}</span>`;   // in the popup, "No sound" matters more than the size
+    // The quality saved (from 1.7) and the size, e.g. "720p · 4.1 MB".
+    const info = [Number.isInteger(e.height) && e.height > 0 ? `${e.height}p` : '', fmtBytes(it?.fileSize || e.bytes)].filter(Boolean).join(' · ');
+    if (info && !(compact && e.noAudio)) out = `<span>${info}</span>`;   // in the popup, "No sound" matters more than the size
     if (state === 'unlisted' && !compact) out += '<span class="quiet">Not in Chrome’s download list</span>';
   }
   if (e.noAudio) out += '<span class="bad">No sound</span>';

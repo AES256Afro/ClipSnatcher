@@ -20,6 +20,7 @@ import { isSiteMediaUrl } from './resolve.js';
  * @property {string} mediaHost     host of mediaUrl; agreed to once, so "Download again" may reuse it
  * @property {number} index         the video's position in its post (1-based)
  * @property {boolean} noAudio      saved without sound
+ * @property {number} [height]      the quality saved, as the short side in pixels (720 = 720p); 0 if unknown
  * @property {boolean} whole        mediaUrl is the complete video (false for a Reddit picture track)
  * @property {string} filename      path relative to Downloads that was asked for
  * @property {string|null} path     full path once Chrome reports it
@@ -40,6 +41,7 @@ export const DEFAULT_SETTINGS = {
   perSite: true,           // ClipSnatcher/X, ClipSnatcher/Reddit, ...
   hoverButton: true,       // floating "Save" button over videos
   authorInName: true,      // prefix filenames with @author when known
+  nameTemplate: '',        // file name like "{date} {author} - {title}"; empty for the usual name
   quality: 'best',         // 'best' | 'smaller' (720p or less) | 'fit' (under maxMB)
   maxMB: 10,               // size limit for 'fit', e.g. a chat app's upload limit
   autoCopy: false,         // copy each video to the clipboard when it finishes (copy helper)
@@ -191,6 +193,7 @@ export function cleanImportedEntry(e) {
     mediaUrl: site !== 'web' && isSiteMediaUrl(site, link(e.mediaUrl)) ? link(e.mediaUrl) : '', mediaHost: '',
     index: Number.isInteger(e.index) && e.index > 0 && e.index < 50 ? e.index : 1,
     noAudio: e.noAudio === true, whole: e.whole === true,
+    height: Number.isInteger(e.height) && e.height > 0 && e.height <= 10000 ? e.height : 0,
     filename: str(e.filename, 1000), path: /^(\/|[A-Za-z]:\\)/.test(path) ? path : null,
     downloadId: null, dlStart: null,
     state: e.state === 'complete' ? 'complete' : 'interrupted', error: e.state === 'complete' ? '' : 'IMPORTED',

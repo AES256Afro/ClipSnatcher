@@ -34,6 +34,7 @@ const SAMPLE = { site: 'reddit', title: 'Post title', author: 'r/subreddit', id:
 async function init() {
   const s = await getSettings();
   $('folder').value = s.folder;
+  $('nameTemplate').value = s.nameTemplate || '';
   for (const k of TOGGLES) $(k).checked = !!s[k];
   $('notifyProblems').checked = !!s.notifyProblems && await chrome.permissions.contains(NOTIFY).catch(() => false);
   for (const r of /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="quality"]'))) r.checked = r.value === s.quality;
@@ -55,11 +56,18 @@ async function init() {
 // Uses the same naming code as the background worker, so this is exactly what gets saved.
 function preview() {
   const typed = $('folder').value.trim();
-  const settings = { folder: typed, perSite: $('perSite').checked, authorInName: $('authorInName').checked };
+  const settings = { folder: typed, perSite: $('perSite').checked, authorInName: $('authorInName').checked, nameTemplate: $('nameTemplate').value };
   $('preview').textContent = 'Downloads/' + buildFilename(settings, SAMPLE, { kind: 'mux', index: 1 }, 1);
   const cleaned = sanitizeFolder(typed);
   $('previewNote').textContent = cleaned !== typed.replace(/^[\\/]+|[\\/]+$/g, '') ? ' (some characters in the folder name aren’t allowed in file paths and were dropped)' : '';
 }
+
+let nameTimer;
+$('nameTemplate').addEventListener('input', () => {
+  preview();
+  clearTimeout(nameTimer);
+  nameTimer = setTimeout(async () => { await saveSettings({ nameTemplate: $('nameTemplate').value.trim().slice(0, 200) }); say('Saved', 'ok'); }, 500);
+});
 
 let t;
 $('folder').addEventListener('input', () => {

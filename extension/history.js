@@ -1,5 +1,6 @@
 import { problemsSummary } from './lib/problems.js';
-import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes } from './lib/ui.js';
+import { sortEntries, totalBytes } from './lib/history-view.js';
+import { ICON, getHistory, getThumbs, isThumbChange, liveState, mergeProgress, renderList, tickProgress, needsTicking, wireList, platformReady, announceMergeOutcomes, fmtBytes } from './lib/ui.js';
 
 /** @type {(id: string) => any} */
 const $ = (id) => document.getElementById(id);
@@ -57,17 +58,22 @@ async function render() {
   const mine = ++renderNo;
   await platformReady;
   const terms = $('q').value.toLowerCase().split(/\s+/).filter(Boolean);
-  const filtered = all.filter((e) => matches(e, terms));
+  const filtered = sortEntries(all.filter((e) => matches(e, terms)), $('sort').value);
   const rows = filtered.slice(0, limit);
   const [state, progress, thumbs] = await Promise.all([liveState(rows), mergeProgress(), getThumbs(rows.map((e) => e.id))]);
   if (mine !== renderNo) return;          // a newer render is on its way; don't paint stale data
   shown = rows; live = state;
   announceMergeOutcomes(seenStates, shown, live, say);
-  $('count').textContent = all.length ? `${filtered.length} of ${all.length} video${all.length === 1 ? '' : 's'}` : '';
+  // How many match, and how much disk space their files take (as last recorded).
+  const bytes = totalBytes(filtered);
+  $('count').textContent = all.length ? `${filtered.length} of ${all.length} video${all.length === 1 ? '' : 's'}${bytes ? ` · ${fmtBytes(bytes)} on disk` : ''}` : '';
   $('clearFilters').hidden = !(all.length && (terms.length || site || favsOnly));
   renderList($('list'), shown, live, { progress, thumbs, emptyHTML: all.length ? EMPTY_FILTERED : EMPTY_ALL });
   $('more').hidden = filtered.length <= limit;
   $('cleanup').hidden = all.length === 0;
+  const failed = retryable(all).length;
+  $('retryFailed').hidden = !failed || retrying;
+  $('retryFailed').textContent = `Retry failed (${failed})`;
   watchProgress();
 }
 
@@ -98,8 +104,38 @@ $('chips').addEventListener('click', (e) => {
 $('clearFilters').onclick = () => { $('q').value = ''; pickSite(''); setFavsOnly(false); render(); $('q').focus(); };
 function setFavsOnly(on) { favsOnly = on; $('favs').setAttribute('aria-pressed', String(on)); }
 $('favs').onclick = () => { setFavsOnly(!favsOnly); limit = PAGE; render(); };
+$('sort').addEventListener('change', () => { limit = PAGE; render(); });
 $('list').addEventListener('clipsnatcher:rerender', () => { if ($('list').dataset.stale) { delete $('list').dataset.stale; render(); } });
 $('more').onclick = () => { limit += PAGE; render(); };
+
+// Downloads that failed and might work now. Ones you cancelled stay as they are, and ones
+// stopped for redirecting to another host would only be stopped again.
+const retryable = (list) => list.filter((e) => e.state === 'interrupted' && e.error !== 'USER_CANCELED' && e.error !== 'REDIRECTED');
+
+// Tries every failed download again, one after another, with the same rules as each row's
+// "Download again". Ones that now need a yes for another host are left for their own row.
+let retrying = false;
+$('retryFailed').onclick = async () => {
+  const list = retryable(all);
+  if (!list.length || retrying) return;
+  retrying = true;
+  $('retryFailed').hidden = true;
+  let started = 0, ask = 0;
+  const failed = [];
+  for (const [i, e] of list.entries()) {
+    say(`Trying again ${i + 1} of ${list.length}… Keep this page open until it finishes.`, '', null, { sticky: true });
+    const r = await chrome.runtime.sendMessage({ type: 'clipsnatcher:redownload', id: e.id }).catch(() => null);
+    if (r?.ok) started++;
+    else if (r?.needsConfirm) ask++;
+    else failed.push(e.title);
+  }
+  retrying = false;
+  const parts = [`Started ${started} of ${list.length} again.`];
+  if (ask) parts.push(`${ask} now come${ask === 1 ? 's' : ''} from another site: use Download again on ${ask === 1 ? 'its row' : 'their rows'} to say yes.`);
+  if (failed.length) parts.push(`Still failing: ${failed.slice(0, 5).join(' • ')}${failed.length > 5 ? ` and ${failed.length - 5} more` : ''}.`);
+  say(parts.join(' '), failed.length ? 'err' : 'ok');
+  render();
+};
 
 // Finds entries whose file is gone and offers to remove them (with Undo).
 $('cleanup').onclick = async () => {

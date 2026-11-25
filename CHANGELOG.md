@@ -4,6 +4,13 @@ All notable changes to ClipSnatcher. Versions match `extension/manifest.json`.
 
 ## Unreleased
 
+- **Save small, just this once.** The popup has an **Under N MB** button next to Save: it saves that link (or links) at your size limit without changing the Quality setting.
+- **History shows the quality saved**, next to the size: `720p · 8.0 MB`. For videos saved from now on.
+- **Sort history** by newest, oldest, largest or title, and see how much disk space the listed files take.
+- **Retry failed** in history tries every failed download again, one after another. Ones that now come from another site are left for you to confirm on their row.
+- **File-name templates.** Settings → File name takes a template such as `{date} {author} - {title}`, with `{author}`, `{title}`, `{id}`, `{site}` and `{date}`. Empty keeps the usual name.
+- **Portrait thumbnails** show the middle of the picture instead of the top.
+- **Dark mode:** the X badge in history is readable again.
 - **Faster saves with a long history.** Saving a video now writes history twice instead of three times, and updates that change nothing aren't written at all. With 5,000 videos in history, the reply to a save went from about 0.7 to 0.45 seconds on the test computer. The file's location is recorded when the download finishes.
 - Thumbnails free their memory as soon as they are made.
 - For developers: `node browser-tests/run.mjs perf` measures opening, searching and saving with 50 and 5,000 videos; the numbers and the decision to keep history in `chrome.storage.local` are in `docs/performance.md`.
